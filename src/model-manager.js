@@ -1,7 +1,20 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import {getLlama, resolveModelFile, LlamaLogLevel} from "node-llama-cpp";
+import {getLlama, resolveModelFile, LlamaLogLevel, GgufInsights} from "node-llama-cpp";
 import {ACTIVE_MODEL, MODELS_DIR, MODEL_PATH_OVERRIDE} from "./models.js";
+
+/**
+ * Context sizes to try, largest first. The KV cache grows linearly with this and is the
+ * thing that decides whether the model fits in RAM, so we pick the biggest one that does.
+ */
+const CONTEXT_CANDIDATES = [4096, 2048, 1024, 512];
+
+/** Leave this fraction of free RAM for everything else on the machine. */
+const RAM_SAFETY_FACTOR = 0.85;
+
+/** Runtime, tokenizer and compute-graph overhead that is not part of weights or KV cache. */
+const RUNTIME_OVERHEAD_BYTES = 160 * 1024 * 1024;
 
 /**
  * Lifecycle of the single model instance this server owns.
@@ -79,8 +92,7 @@ async function load() {
 
     assertModelMatchesCatalog(model, modelPath);
 
-    // Never request a context larger than the model was trained on.
-    const contextSize = Math.min(ACTIVE_MODEL.contextSize, model.trainContextSize);
+    const contextSize = await pickContextSize(model);
 
     const context = await model.createContext({
         contextSize,
@@ -96,10 +108,121 @@ async function load() {
         message: "SmolLM2 is ready.",
         device: describeDevice(llama),
         contextSize,
+        freeRamBytes: os.freemem(),
         totalBytes: status.totalBytes
     });
 
     return {llama, model, context};
+}
+
+/**
+ * Pick a context size from a budget. Pure function so the decision can be tested with
+ * real SmolLM2 numbers instead of whatever fixture happens to be on hand.
+ *
+ * @param {object} options
+ * @param {number} options.freeRamBytes   RAM we are willing to spend.
+ * @param {number} options.weightsBytes   Resident size of the model weights.
+ * @param {number} options.maxContextSize Upper bound (the model's trained window).
+ * @param {(size: number) => (number|null)} options.estimateContextBytes
+ * @returns {{contextSize: number, reason: string}}
+ */
+export function chooseContextSize({freeRamBytes, weightsBytes, maxContextSize, estimateContextBytes}) {
+    for (const contextSize of CONTEXT_CANDIDATES) {
+        if (contextSize > maxContextSize) continue;
+
+        const contextBytes = estimateContextBytes(contextSize);
+        if (contextBytes == null) continue;
+
+        const total = weightsBytes + contextBytes + RUNTIME_OVERHEAD_BYTES;
+        if (total <= freeRamBytes) {
+            return {
+                contextSize,
+                reason: contextSize < maxContextSize ? "reduced to fit available memory" : "fits available memory"
+            };
+        }
+    }
+
+    return {
+        contextSize: Math.min(512, maxContextSize),
+        reason: "memory is very tight; using the smallest context, generation may be slow"
+    };
+}
+
+/**
+ * Choose the largest context that comfortably fits in the RAM we actually have.
+ *
+ * The KV cache is the dominant variable cost: for SmolLM2 1.7B it is roughly 192 KB per
+ * token of context (24 layers x 2048 kv-dim x 2 (K and V) x 2 bytes). At the default 4096
+ * that alone is ~768 MB on top of ~1060 MB of weights, which does not fit in a 2 GB box.
+ * Rather than hardcode a number that is wrong on small machines and stingy on big ones,
+ * measure what is available and pick accordingly.
+ */
+async function pickContextSize(model) {
+    const maxContextSize = Math.min(ACTIVE_MODEL.contextSize, model.trainContextSize);
+
+    const requested = process.env.VOXELCHAT_CONTEXT_SIZE;
+    if (requested != null) {
+        const parsed = Number(requested);
+        if (!Number.isFinite(parsed) || parsed < 256) {
+            console.warn(`  Ignoring invalid VOXELCHAT_CONTEXT_SIZE="${requested}" (expected a number >= 256).`);
+        } else {
+            const chosen = Math.min(Math.floor(parsed), maxContextSize);
+            if (chosen !== parsed) console.warn(`  Context capped at ${chosen} tokens (the model's trained window).`);
+            return chosen;
+        }
+    }
+
+    const estimateContextBytes = await createContextEstimator(model);
+    if (estimateContextBytes == null) {
+        const fallback = Math.min(2048, maxContextSize);
+        console.log(`  Could not estimate memory use; starting with a ${fallback}-token context.`);
+        return fallback;
+    }
+
+    const {contextSize, reason} = chooseContextSize({
+        freeRamBytes: os.freemem() * RAM_SAFETY_FACTOR,
+        weightsBytes: model.size,
+        maxContextSize,
+        estimateContextBytes
+    });
+
+    console.log(`  Using a ${contextSize}-token context window (${reason}).`);
+    return contextSize;
+}
+
+/**
+ * Returns a function mapping a context size to its estimated RAM cost, or null when the
+ * estimation helpers are unavailable in the installed version.
+ */
+async function createContextEstimator(model) {
+    let insights;
+    try {
+        insights = await GgufInsights.from(model.fileInfo, model.llama);
+    } catch {
+        return null;
+    }
+
+    const cache = new Map();
+
+    return contextSize => {
+        if (cache.has(contextSize)) return cache.get(contextSize);
+
+        let bytes = null;
+        try {
+            const estimate = insights.estimateContextResourceRequirements({
+                contextSize,
+                modelGpuLayers: model.gpuLayers ?? 0
+            });
+
+            const value = Number(estimate?.cpuRam ?? estimate?.total ?? 0);
+            bytes = value > 0 ? value : null;
+        } catch {
+            bytes = null;
+        }
+
+        cache.set(contextSize, bytes);
+        return bytes;
+    };
 }
 
 async function resolveModelPath() {

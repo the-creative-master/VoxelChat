@@ -210,6 +210,10 @@ async function shutdown(signal) {
     console.log(`\n  ${signal} received — shutting down.`);
 
     server.close();
+
+    // Stop any generation still in flight before the model is torn down. Disposing the
+    // context underneath a running generation surfaces as a confusing "Object is disposed".
+    activeGeneration?.abort();
     await waitForIdle({timeoutMs: 3000});
     await disposeModel();
     process.exit(0);

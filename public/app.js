@@ -38,6 +38,7 @@ const els = {
   specQuant: document.getElementById("specQuant"),
   specContext: document.getElementById("specContext"),
   specDevice: document.getElementById("specDevice"),
+  specMemory: document.getElementById("specMemory"),
   toast: document.getElementById("toast")
 };
 
@@ -342,6 +343,14 @@ function applyStatus(payload) {
   }
 
   if (status.device) els.specDevice.textContent = status.device;
+
+  // The context window is chosen at load time based on available RAM, so show the real
+  // value rather than the catalog default.
+  if (Number.isFinite(status.contextSize) && status.contextSize > 0)
+    els.specContext.textContent = `${status.contextSize} tokens`;
+
+  if (Number.isFinite(status.freeRamBytes) && status.freeRamBytes > 0)
+    els.specMemory.textContent = formatBytes(status.freeRamBytes);
   if (!activeConversation()?.messages.length) renderWelcomeNote();
 }
 

@@ -59,12 +59,33 @@ All configuration is optional environment variables:
 | `VOXELCHAT_MODELS_DIR` | `./models` | Where downloaded models are stored. |
 | `VOXELCHAT_AUTO_LOAD` | `true` | Set to `false` to defer loading until the first message. |
 | `VOXELCHAT_MAX_TOKENS` | `512` | Maximum tokens generated per reply. |
+| `VOXELCHAT_CONTEXT_SIZE` | *auto* | Context window in tokens. By default the largest that fits available RAM is chosen (see below). |
 
 Example, using a model file you already have:
 
 ```bash
 VOXELCHAT_MODEL_PATH=/path/to/smollm2-1.7b-instruct-q4_k_m.gguf npm start
 ```
+
+## Memory use
+
+The model weights are ~1.06 GB, and the KV cache grows with the context window. For
+SmolLM2 1.7B the KV cache costs roughly **192 KB per token of context**:
+
+| Context window | KV cache | Weights + KV |
+|---|---|---|
+| 512 | 96 MB | ~1.16 GB |
+| 1024 | 192 MB | ~1.25 GB |
+| 2048 | 384 MB | ~1.44 GB |
+| 4096 | 768 MB | ~1.83 GB |
+
+On startup VoxelChat measures free RAM and picks the largest context that fits, so a
+2 GB machine gets a smaller window automatically instead of failing to allocate. The
+chosen size is logged at startup and shown in Settings. Override it with
+`VOXELCHAT_CONTEXT_SIZE` if you want to be explicit.
+
+Note that the GGUF file must still exist on disk: `node-llama-cpp` loads models by path
+(memory-mapped), and has no API for loading weights from a RAM buffer.
 
 ## How it works
 

@@ -6,7 +6,8 @@
   "description": "A local AI chat interface powered by node-llama.cpp",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test": "node --test test/*.test.mjs"
   },
   "engines": {
     "node": ">=20.0.0"
