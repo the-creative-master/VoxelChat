@@ -1,5 +1,12 @@
 node_modules/
 .env
 .env.local
+
+# Downloaded GGUF models (large binaries — never commit these)
+models/
+*.gguf
+
 npm-debug.log*
 .DS_Store
+.vscode/
+.idea/

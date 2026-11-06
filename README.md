@@ -1,30 +1,135 @@
 # VoxelChat
 
-A polished, static AI chat and image-generation interface designed for **GitHub Pages**. It discovers model catalogs from OpenAI-compatible providers, including OpenRouter's hundreds of available models, and sends requests directly from your browser.
+A local AI chat app. Chat with **SmolLM2 1.7B Instruct** running entirely on your own
+machine through [`node-llama-cpp`](https://github.com/withcatai/node-llama-cpp).
 
-## Deploy on GitHub Pages
+No API keys. No accounts. Nothing you type is sent to a third party — the model runs in
+the same process as the server on your computer.
 
-1. In the repository, open **Settings → Pages**.
-2. Under **Build and deployment**, choose **Deploy from a branch**.
-3. Select `main` and the `/(root)` folder, then save.
-4. Open the published Pages URL after the deployment finishes.
+> The name is just a name; there is no voxel rendering here.
 
-The site is plain HTML, CSS, and JavaScript—no Node server or build step is required. GitHub Pages serves the root `index.html`; `server.js` is not used by the static app.
+## Requirements
 
-## Connect chat models
+- **Node.js 20 or newer**
+- **~1.5 GB free disk space** (1.06 GB model + llama.cpp binaries)
+- Any modern browser
+- No GPU required — it runs on the CPU. A GPU is used automatically if one is available.
 
-1. Open **Settings & providers** inside VoxelChat.
-2. Choose **OpenRouter — hundreds of models**, enter an OpenRouter API key, and save.
-3. Use the model selector in the message composer. VoxelChat fetches the provider's live model list; available models depend on your account and provider.
+## Quick start
 
-OpenAI, custom OpenAI-compatible APIs, and local Ollama are also supported. For Ollama, allow the Pages origin in Ollama's `OLLAMA_ORIGINS` configuration and make the local server reachable from the browser. A hosted GitHub Pages site cannot reach another user's localhost unless they configure that local service and browser access.
+```bash
+npm install
+npm start
+```
 
-## Image generation
+Then open **http://localhost:3000**.
 
-Open **Image studio** and configure an image API base URL, image model, and API key in Settings. The current implementation sends OpenAI-compatible `POST /images/generations` requests (for example, OpenAI's Images API). A chat provider's key is reused when the image key is blank. The endpoint must allow browser CORS requests and support the requested image model and parameters.
+On the first run, VoxelChat downloads the model (~1.06 GB) into `models/` and shows
+progress in the sidebar. This happens once. Every run after that loads from disk in a
+few seconds.
 
-## Important security and hosting limits
+To use a different port:
 
-GitHub Pages is static hosting; it cannot securely store API keys or hide provider requests behind a server. Keys are saved in this browser's local storage and sent directly to the chosen provider. Use a restricted key, avoid shared devices, and never commit keys to this repository. For a public production app, put provider calls behind a backend you control, with authentication, rate limiting, and secret management.
+```bash
+PORT=8080 npm start
+```
 
-Chat history and settings are stored in the browser's local storage. Clearing site data removes them. Model availability, pricing, and image-generation support are determined by the selected provider.
+## The model
+
+| | |
+|---|---|
+| Model | SmolLM2 1.7B Instruct |
+| Parameters | 1.7B |
+| Quantization | Q4_K_M |
+| File size | ~1.06 GB |
+| Context window | 4096 tokens |
+| Source | [HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF](https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF) |
+
+Only this one model is supported for now. The catalog lives in `src/models.js` — it is a
+single-entry array, so adding a second model later is a matter of adding another object.
+
+## Configuration
+
+All configuration is optional environment variables:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PORT` | `3000` | HTTP port |
+| `VOXELCHAT_MODEL_PATH` | *(unset)* | Absolute path to an existing `.gguf` file. Skips the download entirely — useful offline or on a slow connection. |
+| `VOXELCHAT_MODELS_DIR` | `./models` | Where downloaded models are stored. |
+| `VOXELCHAT_AUTO_LOAD` | `true` | Set to `false` to defer loading until the first message. |
+| `VOXELCHAT_MAX_TOKENS` | `512` | Maximum tokens generated per reply. |
+
+Example, using a model file you already have:
+
+```bash
+VOXELCHAT_MODEL_PATH=/path/to/smollm2-1.7b-instruct-q4_k_m.gguf npm start
+```
+
+## How it works
+
+```
+Browser (public/)                    Server (Node)                      llama.cpp
+─────────────────                    ─────────────                      ─────────
+chat UI, history in localStorage ──► POST /api/chat  ──► src/chat.js ──► SmolLM2
+      ▲                                  │  SSE stream        │
+      └──────── token chunks ────────────┘                    │
+                                                              │
+status indicator ◄── GET /api/status/stream ◄── src/model-manager.js
+```
+
+- **`server.js`** — Express server, SSE endpoints, graceful shutdown.
+- **`src/models.js`** — the model catalog (one entry).
+- **`src/model-manager.js`** — downloads, loads, and owns the single model + context instance.
+- **`src/chat.js`** — builds a session per request from the conversation history, streams
+  chunks, and rejects concurrent generations.
+- **`public/`** — the browser UI. Plain HTML/CSS/JS, no build step.
+
+Nothing in the browser talks to the model directly; it only calls this server.
+
+### API
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/status` | Current model phase (`idle`/`downloading`/`loading`/`ready`/`error`) |
+| `GET /api/status/stream` | The same, as a live SSE feed |
+| `POST /api/model/load` | Start loading the model manually |
+| `POST /api/chat` | Stream a reply. Body: `{messages, systemPrompt}` |
+| `GET /api/model/download` | Redirects to the GGUF file on Hugging Face |
+
+`POST /api/chat` responds with server-sent events: `chunk` frames (`{text}`), then either
+a `done` frame or an `error` frame. Aborting the request stops generation immediately.
+
+## Troubleshooting
+
+**The model download stalls or fails.** The built-in downloader pulls from Hugging Face.
+You can fetch the file by hand instead:
+
+```bash
+curl -L -o models/smollm2-1.7b-instruct-q4_k_m.gguf \
+  https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf
+```
+
+Place it in `models/` (or point `VOXELCHAT_MODEL_PATH` at it) and restart.
+
+**`npm install` fails while building llama.cpp.** Prebuilt binaries cover macOS, Linux,
+and Windows. If none match your platform, it builds from source with `cmake`, which needs
+a working C++ toolchain.
+
+**Replies are slow.** A 1.7B model on CPU is roughly 10–40 tokens/second depending on the
+machine, so a long answer takes a while. `VOXELCHAT_MAX_TOKENS` caps reply length.
+
+**Out of memory.** Close other applications, or use a smaller quant
+(`Q4_K_S` is ~999 MB) by editing the entry in `src/models.js`.
+
+## Notes
+
+- Conversations and the system prompt are saved in your browser's `localStorage`.
+- The server binds to all interfaces so it can be reached from other devices on your
+  network. It has **no authentication** — don't expose it to the public internet.
+- This is a development server. For anything beyond personal use, add auth, rate
+  limiting, and HTTPS.
+
+## License
+
+MIT

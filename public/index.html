@@ -1,41 +1,150 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>VoxelChat</title>
-    <link rel="stylesheet" href="/styles.css" />
-  </head>
-  <body>
-    <div class="app-shell">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">LOCAL AI CHAT</p>
-          <h1>VoxelChat</h1>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="VoxelChat — a local AI chat interface powered by node-llama.cpp and SmolLM2.">
+  <title>VoxelChat</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%236ee7a8'/><path d='M28 30l22 42 22-42' fill='none' stroke='%230d1a13' stroke-width='10' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-head">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 100 100" aria-hidden="true"><path d="M26 28l24 46 24-46" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="brand-name">VoxelChat</span>
         </div>
-        <label class="model-picker">
-          <span>Model</span>
-          <select id="modelSelect"></select>
-        </label>
+        <button class="icon-btn sidebar-close" id="closeSidebar" aria-label="Close sidebar">✕</button>
+      </div>
+
+      <button class="new-chat" id="newChat">
+        <span class="plus" aria-hidden="true">+</span> New chat
+      </button>
+
+      <div class="sidebar-section">
+        <p class="section-label">Conversations</p>
+        <ul class="conversation-list" id="conversationList"></ul>
+        <p class="empty-list" id="emptyList">No conversations yet.</p>
+      </div>
+
+      <div class="sidebar-foot">
+        <div class="model-card">
+          <div class="model-card-top">
+            <span class="model-dot" id="modelDot" aria-hidden="true"></span>
+            <span class="model-name" id="modelName">SmolLM2 1.7B</span>
+          </div>
+          <p class="model-meta" id="modelMeta">Q4_K_M · 1.06 GB · local</p>
+          <p class="model-status" id="modelStatus">Starting…</p>
+          <div class="progress" id="progress" hidden>
+            <div class="progress-bar" id="progressBar"></div>
+          </div>
+        </div>
+        <button class="ghost-btn" id="openSettings">
+          <span aria-hidden="true">⚙</span> Settings
+        </button>
+      </div>
+    </aside>
+
+    <div class="scrim" id="scrim" hidden></div>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" id="openSidebar" aria-label="Open sidebar">☰</button>
+        <div class="topbar-title" id="topbarTitle">New chat</div>
+        <div class="topbar-actions">
+          <span class="pill" id="statusPill"><span class="pill-dot"></span><span id="statusPillText">Connecting</span></span>
+        </div>
       </header>
 
-      <main class="chat-panel">
-        <div id="chatMessages" class="messages" aria-live="polite"></div>
+      <div class="scroll-area" id="scrollArea">
+        <div class="welcome" id="welcome">
+          <h1>Talk to a model that<br>never leaves your machine.</h1>
+          <p>SmolLM2 1.7B runs locally through <code>node-llama.cpp</code>. No API keys, no accounts, no requests to anyone else.</p>
+          <div class="suggestions">
+            <button class="suggestion" data-prompt="Explain how a large language model generates text, in simple terms.">
+              <span class="suggestion-title">Explain something</span>
+              <span class="suggestion-sub">How text generation actually works</span>
+            </button>
+            <button class="suggestion" data-prompt="Write a short, friendly poem about running AI on your own laptop.">
+              <span class="suggestion-title">Write something</span>
+              <span class="suggestion-sub">A poem about local AI</span>
+            </button>
+            <button class="suggestion" data-prompt="What are the tradeoffs between running a small model locally and using a large model in the cloud?">
+              <span class="suggestion-title">Weigh tradeoffs</span>
+              <span class="suggestion-sub">Local small model vs cloud giant</span>
+            </button>
+          </div>
+          <p class="welcome-note" id="welcomeNote"></p>
+        </div>
 
-        <form id="chatForm" class="composer">
-          <textarea
-            id="promptInput"
-            rows="4"
-            placeholder="Type a message..."
-            aria-label="Message input"
-          ></textarea>
-          <div class="composer-actions">
-            <button type="submit" id="sendButton">Send</button>
+        <div class="messages" id="messages" aria-live="polite" aria-relevant="additions text"></div>
+      </div>
+
+      <div class="composer-wrap">
+        <form class="composer" id="composer">
+          <label class="sr-only" for="prompt">Message</label>
+          <textarea id="prompt" rows="1" placeholder="Send a message…" autocomplete="off" spellcheck="true"></textarea>
+          <div class="composer-row">
+            <span class="composer-hint">Enter to send · Shift + Enter for a new line</span>
+            <div class="composer-buttons">
+              <button type="button" class="stop-btn" id="stopBtn" hidden>Stop</button>
+              <button type="submit" class="send-btn" id="sendBtn" aria-label="Send message">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M12 5l-6 6M12 5l6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
           </div>
         </form>
-      </main>
-    </div>
+        <p class="disclaimer">Small models make mistakes. SmolLM2 is fast, not infallible.</p>
+      </div>
+    </main>
+  </div>
 
-    <script src="/app.js"></script>
-  </body>
+  <dialog class="settings-dialog" id="settingsDialog">
+    <div class="settings-form">
+      <header class="settings-head">
+        <h2>Settings</h2>
+        <button type="button" class="icon-btn" id="closeSettings" aria-label="Close settings">✕</button>
+      </header>
+
+      <div class="settings-body">
+        <label class="field-label" for="systemPrompt">System prompt</label>
+        <p class="field-help">Sets the model's persona and rules. Sent with every message.</p>
+        <textarea id="systemPrompt" rows="6" spellcheck="false"></textarea>
+        <div class="field-row">
+          <button type="button" class="ghost-btn small" id="resetSystemPrompt">Restore default</button>
+          <span class="char-count" id="systemPromptCount"></span>
+        </div>
+
+        <hr>
+
+        <h3 class="settings-subhead">Model</h3>
+        <dl class="spec-list">
+          <div><dt>Name</dt><dd id="specName">SmolLM2 1.7B Instruct</dd></div>
+          <div><dt>Parameters</dt><dd id="specParams">1.7B</dd></div>
+          <div><dt>Quantization</dt><dd id="specQuant">Q4_K_M</dd></div>
+          <div><dt>Context window</dt><dd id="specContext">4096 tokens</dd></div>
+          <div><dt>Compute</dt><dd id="specDevice">—</dd></div>
+        </dl>
+        <p class="field-help">
+          Only one model is supported for now. The GGUF file is stored in <code>models/</code> inside the project.
+          <a href="/api/model/download">Download it directly</a> if the built-in downloader fails.
+        </p>
+      </div>
+
+      <footer class="settings-foot">
+        <button type="button" class="danger-btn" id="clearAll">Delete all chats</button>
+        <button type="button" class="primary-btn" id="saveSettings">Save</button>
+      </footer>
+    </div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="/app.js"></script>
+</body>
 </html>

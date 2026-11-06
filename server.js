@@ -1,74 +1,198 @@
-const express = require('express');
-const path = require('path');
+import path from "node:path";
+import {fileURLToPath} from "node:url";
+import express from "express";
+import {
+    ensureModel,
+    getStatus,
+    subscribe,
+    isReady,
+    disposeModel
+} from "./src/model-manager.js";
+import {
+    generateReply,
+    normalizeMessages,
+    normalizeSystemPrompt,
+    isGenerating,
+    waitForIdle,
+    ChatBusyError,
+    ChatValidationError,
+    DEFAULT_SYSTEM_PROMPT
+} from "./src/chat.js";
+import {getModelInfo, ACTIVE_MODEL} from "./src/models.js";
+
+const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const PUBLIC_DIR = path.join(ROOT_DIR, "public");
+const PORT = Number(process.env.PORT || 3000);
+const AUTO_LOAD = process.env.VOXELCHAT_AUTO_LOAD !== "false";
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'llama3.2';
+app.use(express.json({limit: "1mb"}));
+app.use(express.static(PUBLIC_DIR));
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+/* ---------------------------------- status --------------------------------- */
 
-app.get('/api/models', async (req, res) => {
-  try {
-    const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
+app.get("/api/status", (req, res) => {
+    res.json({model: getModelInfo(), status: getStatus(), generating: isGenerating()});
+});
 
-    if (!response.ok) {
-      throw new Error(`Ollama responded with status ${response.status}`);
+/** Server-sent events feed so the UI can show download/load progress live. */
+app.get("/api/status/stream", (req, res) => {
+    res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no"
+    });
+
+    const send = payload => res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    send({model: getModelInfo(), status: getStatus()});
+
+    const unsubscribe = subscribe(status => send({model: getModelInfo(), status}));
+    const heartbeat = setInterval(() => res.write(": ping\n\n"), 15000);
+
+    req.on("close", () => {
+        clearInterval(heartbeat);
+        unsubscribe();
+    });
+});
+
+/** Kick off loading manually (the server also does this on boot by default). */
+app.post("/api/model/load", (req, res) => {
+    if (isReady())
+        return res.json({ok: true, status: getStatus()});
+
+    ensureModel().catch(() => {
+        // The failure is already reflected in the shared status object.
+    });
+
+    res.status(202).json({ok: true, status: getStatus()});
+});
+
+/* ----------------------------------- chat ---------------------------------- */
+
+app.post("/api/chat", async (req, res) => {
+    let messages;
+    let systemPrompt;
+
+    try {
+        messages = normalizeMessages(req.body?.messages);
+        systemPrompt = normalizeSystemPrompt(req.body?.systemPrompt);
+    } catch (error) {
+        if (error instanceof ChatValidationError)
+            return res.status(400).json({error: error.message});
+        throw error;
     }
 
-    const data = await response.json();
-    const models = (data.models || []).map((model) => model.name);
-    res.json({ models: models.length ? models : [DEFAULT_MODEL] });
-  } catch (error) {
-    console.error('Failed to fetch models from Ollama:', error.message);
-    res.status(502).json({
-      error: 'Could not reach the local Ollama server.',
-      details: error.message,
-      fallbackModel: DEFAULT_MODEL,
-    });
-  }
-});
-
-app.post('/api/chat', async (req, res) => {
-  const { model = DEFAULT_MODEL, messages = [] } = req.body;
-
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return res.status(400).json({ error: 'Messages array is required.' });
-  }
-
-  try {
-    const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        stream: false,
-        messages,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Ollama responded with status ${response.status}`);
+    if (!isReady()) {
+        // Make the browser wait for a pending download instead of failing outright.
+        if (getStatus().phase === "downloading" || getStatus().phase === "loading" || getStatus().phase === "idle")
+            ensureModel().catch(() => {});
     }
 
-    const data = await response.json();
-    const reply = data.message?.content || 'No response returned.';
-    res.json({ reply });
-  } catch (error) {
-    console.error('Chat request failed:', error.message);
-    res.status(502).json({
-      error: 'The local model could not respond.',
-      details: error.message,
+    try {
+        await ensureModel();
+    } catch (error) {
+        return res.status(503).json({
+            error: "The model could not be loaded.",
+            details: error?.message ?? String(error)
+        });
+    }
+
+    res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no"
     });
-  }
+
+    const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+    const abortController = new AbortController();
+    let clientGone = false;
+
+    // If the browser disconnects or the user hits Stop, halt generation.
+    // `res` is used rather than `req`: with Express, `req`'s "close" can fire once the
+    // request body has been read, which would abort generation immediately.
+    res.on("close", () => {
+        clientGone = true;
+        if (!res.writableEnded) abortController.abort();
+    });
+
+    const startedAt = Date.now();
+
+    try {
+        const {text, stopReason} = await generateReply({
+            messages,
+            systemPrompt,
+            signal: abortController.signal,
+            onTextChunk(chunk) {
+                if (clientGone) return;
+                send("chunk", {text: chunk});
+            }
+        });
+
+        if (!clientGone) {
+            send("done", {
+                stopReason,
+                durationMs: Date.now() - startedAt,
+                characters: text.length
+            });
+        }
+    } catch (error) {
+        if (!clientGone) {
+            const isBusy = error instanceof ChatBusyError;
+            send("error", {
+                error: isBusy ? error.message : "Generation failed.",
+                details: error?.message ?? String(error)
+            });
+        }
+    } finally {
+        res.end();
+    }
 });
 
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+/* --------------------------------- download -------------------------------- */
+
+/** Direct download of the GGUF file, for people who would rather not use the built-in downloader. */
+app.get("/api/model/download", (req, res) => {
+    res.redirect(302, ACTIVE_MODEL.url);
 });
 
-app.listen(PORT, () => {
-  console.log(`VoxelChat running at http://localhost:${PORT}`);
-  console.log(`Using Ollama at ${OLLAMA_BASE_URL}`);
+app.get("/api/system-prompt", (req, res) => {
+    res.json({systemPrompt: DEFAULT_SYSTEM_PROMPT});
 });
+
+app.get("*", (req, res) => {
+    res.sendFile(path.join(PUBLIC_DIR, "index.html"));
+});
+
+/* --------------------------------- lifecycle ------------------------------- */
+
+const server = app.listen(PORT, () => {
+    console.log("");
+    console.log(`  VoxelChat  →  http://localhost:${PORT}`);
+    console.log(`  Model      →  ${ACTIVE_MODEL.name} (${ACTIVE_MODEL.quantization})`);
+    console.log("");
+
+    if (AUTO_LOAD) {
+        console.log("  Loading SmolLM2… the first run downloads about 1.06 GB.");
+        ensureModel().catch(error => {
+            console.error(`\n  Model failed to load: ${error?.message ?? error}`);
+            console.error("  Fix the problem above, then reload the page to retry.\n");
+        });
+    } else {
+        console.log("  VOXELCHAT_AUTO_LOAD=false — the model loads on your first message.");
+    }
+});
+
+async function shutdown(signal) {
+    console.log(`\n  ${signal} received — shutting down.`);
+
+    server.close();
+    await waitForIdle({timeoutMs: 3000});
+    await disposeModel();
+    process.exit(0);
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
