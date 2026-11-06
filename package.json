@@ -1,11 +1,15 @@
 {
-  "name": "voxelchat",
-  "version": "1.1.0",
+  "name": "smol-voxelchat",
+  "version": "1.0.0",
   "private": true,
-  "description": "Static GitHub Pages AI chat and image generation interface",
+  "description": "Smol — a SmolLM2-1.7B-Instruct character running entirely in the browser via Transformers.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
+    "start": "node smol/serve.mjs",
+    "dev": "node smol/serve.mjs",
+    "vendor": "node scripts/vendor.mjs"
   },
-  "license": "MIT"
+  "dependencies": {
+    "@huggingface/transformers": "3.7.6"
+  },
+  "type": "module"
 }

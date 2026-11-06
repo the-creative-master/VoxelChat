@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Smol — a SmolLM2 1.7B character</title>
+<link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="me">
+        <div class="avatar" id="avatar" aria-hidden="true">
+          <span class="eye"></span><span class="eye"></span>
+        </div>
+        <div class="names">
+          <h1>Smol</h1>
+          <p>runs locally in your browser · <code>SmolLM2-1.7B-Instruct</code></p>
+        </div>
+      </div>
+      <div class="controls">
+        <span class="pill" id="status" data-state="idle"><i class="dot"></i><span id="statusText">idle</span></span>
+        <button id="settingsBtn" class="ghost" title="Settings">⚙︎</button>
+        <button id="resetBtn" class="ghost" title="Clear chat">⟲</button>
+      </div>
+    </header>
+
+    <div class="progress" id="progress" hidden>
+      <div class="bar"><div class="fill" id="progressFill"></div></div>
+      <span id="progressText">preparing…</span>
+    </div>
+
+    <main id="chat" class="chat" aria-live="polite">
+      <div class="empty" id="empty">
+        <h2>Say hi to Smol</h2>
+        <p>A 1.7B-parameter character living entirely in this tab. First load grabs ~1.1 GB of weights (cached afterwards), so give it a minute.</p>
+        <div class="suggestions">
+          <button data-say="Who are you, exactly?">Who are you?</button>
+          <button data-say="Explain quantization to me like I'm five.">Quantization, ELI5</button>
+          <button data-say="Write a haiku about tiny models on big machines.">A haiku</button>
+          <button data-say="What's the difference between you and a huge model?">You vs. a giant</button>
+        </div>
+      </div>
+    </main>
+
+    <form id="composer" class="composer">
+      <textarea id="input" rows="1" placeholder="Message Smol…  (Enter to send, Shift+Enter for a newline)" autocomplete="off"></textarea>
+      <button id="sendBtn" type="submit" class="send" title="Send">↑</button>
+      <button id="stopBtn" type="button" class="stop" title="Stop" hidden>■</button>
+    </form>
+    <p class="foot">100% on-device inference via Transformers.js + WebGPU/WASM. No server sees your messages.</p>
+  </div>
+
+  <dialog id="settings" class="settings">
+    <form method="dialog">
+      <h3>Smol's dials</h3>
+      <label>System prompt
+        <textarea id="systemPrompt" rows="3"></textarea>
+      </label>
+      <label>Model id
+        <input id="modelId" spellcheck="false" />
+      </label>
+      <label>Device
+        <select id="device">
+          <option value="auto">auto (WebGPU if available, else WASM)</option>
+          <option value="webgpu">WebGPU</option>
+          <option value="wasm">WASM (CPU)</option>
+        </select>
+      </label>
+      <label>Temperature <output id="tempOut">0.7</output>
+        <input id="temperature" type="range" min="0" max="1.5" step="0.05" value="0.7" />
+      </label>
+      <label>Top-p <output id="topPOut">0.95</output>
+        <input id="topP" type="range" min="0.1" max="1" step="0.05" value="0.95" />
+      </label>
+      <label>Max new tokens <output id="maxTokOut">256</output>
+        <input id="maxTokens" type="range" min="32" max="1024" step="32" value="256" />
+      </label>
+      <div class="actions">
+        <button value="cancel" class="ghost">Close</button>
+        <button id="reloadBtn" value="reload" class="primary">Reload model</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="./chat.js"></script>
+</body>
+</html>
