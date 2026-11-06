@@ -1,39 +1,65 @@
-# Smol — a SmolLM2-1.7B character in your browser
+# Smol — a SmolLM2-1.7B character on node-llama.cpp
 
 A single-page chat with **Smol**, a character powered by
-[`onnx-community/SmolLM2-1.7B-Instruct`](https://huggingface.co/onnx-community/SmolLM2-1.7B-Instruct).
-The model runs **entirely client-side** with [Transformers.js](https://huggingface.co/docs/transformers.js)
-(WebGPU when available, quantized q4 WASM otherwise). No API keys, no server-side inference —
-your messages never leave the tab.
+[`SmolLM2-1.7B-Instruct`](https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct)
+running on **[node-llama.cpp](https://github.com/withcatai/node-llama-cpp)** locally.
+No cloud API, no API keys — the model runs on your own machine.
 
-## Run it
-
-```bash
-npm start            # http://localhost:5173
+```
+npm i
+npm start          # → http://localhost:5173
 ```
 
-`npm i && npm run vendor` is only needed if you want the Transformers.js runtime served
-locally instead of pulled from jsDelivr (offline / restricted-network setups).
+First run downloads `bartowski/SmolLM2-1.7B-Instruct-GGUF` **Q4_K_M** (~1.05 GB) into
+`models/` via Hugging Face. Later starts load from disk in a second or two. The model
+stays resident in the server process, so the first token is fast after that.
 
-## What's in here
+## Architecture
+
+```
+browser (smol/index.html + chat.js)          node process (smol/serve.mjs)
+─────────────────────────────────            ───────────────────────────────
+chat UI, markdown, settings  ──HTTP/NDJSON──▶  node-llama.cpp (smol/llm.mjs)
+                                              SmolLM2-1.7B-Instruct Q4_K_M
+```
+
+Inference is native code, so it can't live inside the tab: the browser talks to a tiny
+local API and receives tokens as they're generated.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /` | chat UI |
+| `GET /api/status` | phase (`downloading`/`loading`/`ready`/`error`), download %, backend, context size |
+| `POST /api/load` | `{modelId?, systemPrompt?}` — download + load, non-blocking |
+| `POST /api/chat` | `{messages, temperature, top_p, min_p, max_tokens}` → NDJSON `{type:"chunk"}`… `{type:"done"}` |
+| `POST /api/stop` | abort the running generation |
+| `POST /api/reset` | forget the conversation, keep the weights in RAM |
+
+## Files
 
 | File | Purpose |
 | --- | --- |
-| `index.html` | Chat shell: header, transcript, composer, settings dialog |
-| `styles.css` | Dark theme, bubbles, streaming cursor, load progress bar |
-| `chat.js` | UI glue: conversation state, streaming paint loop, settings, persistence |
-| `engine.js` | `SmolEngine` — loads the model, applies the ChatML template, streams tokens, cancellable |
-| `markdown.js` | ~70-line markdown renderer (fenced code, lists, bold/italic, quotes, links), HTML-escaped |
-| `serve.mjs` | Zero-dependency static server with `application/wasm` + COOP/COEP headers |
-| `vendor/` | Optional local copy of transformers.js + the ORT WASM binary (`npm run vendor`) |
+| `smol/index.html`, `smol/styles.css` | chat shell, dark theme, streaming cursor, progress bar |
+| `smol/chat.js` | conversation state, streaming paint loop, settings, `localStorage` history |
+| `smol/engine.js` | browser client: `/api/*` calls, NDJSON stream parsing, abort |
+| `smol/llm.mjs` | llama.cpp side: model resolution/download, context + `LlamaChatSession`, token streaming |
+| `smol/markdown.js` | ~70-line HTML-escaping markdown renderer |
+| `smol/serve.mjs` | static server + JSON/NDJSON API |
+
+## Settings
+
+The ⚙︎ panel controls the system prompt, model id, temperature, top-p, min-p and max new
+tokens. Values persist in `localStorage`.
+
+- **System prompt** — applied immediately (reloads the session, keeps the weights warm).
+- **Model id** — any node-llama-cpp model URI (`hf:user/repo:quant`), an HF/HTTPS URL, or a
+  local `.gguf` path. Changing it triggers a reload; downloads are cached in `models/`.
+- `SMOL_MODEL=/path/to/model.gguf npm start` sets the server default instead.
 
 ## Notes
 
-- **First load downloads ~1.1 GB** of quantized weights from the Hugging Face CDN
-  (`q4` for WASM, `q4f16` for WebGPU). They're cached by the browser, so later visits are fast.
-- **WebGPU** is strongly recommended: expect a few dozen tokens/sec. Pure WASM on the CPU is
-  maybe 2–6 tok/s for 1.7B, which is why the model warms up as soon as the page opens.
-- If WebGPU initialization fails (old driver, Safari fp16 quirks), `engine.js` automatically
-  retries on WASM and reports it in the status pill.
-- All knobs — system prompt, model id, device, temperature, top-p, max tokens — live behind the
-  ⚙︎ button and persist in `localStorage`. Clearing the chat (⟲) resets the transcript.
+- SmolLM2 supports an 8k context; the server uses the model's trained window (capped at 8k,
+  min 512) and node-llama-cpp erases old turns when it fills up.
+- WebGPU/CUDA/Metal are used automatically by llama.cpp when available (`gpuLayers: "auto"`);
+  otherwise it runs on the CPU. The status pill shows which backend is live.
+- `models/` and `*.gguf` are git-ignored — weights are never committed.

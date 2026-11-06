@@ -1,4 +1,4 @@
-import { SmolEngine, defaultDevice } from "./engine.js";
+import { SmolEngine } from "./engine.js";
 import { escapeHtml, renderMarkdown } from "./markdown.js";
 
 /* ------------------------------------------------------------------ *
@@ -23,19 +23,22 @@ const HISTORY_KEY = "smol-history-v1";
 
 const settings = {
   systemPrompt: DEFAULT_SYSTEM,
-  modelId: "onnx-community/SmolLM2-1.7B-Instruct",
-  device: "auto",
+  modelId: "", // empty = use the server's default GGUF
   temperature: 0.7,
   top_p: 0.95,
-  max_new_tokens: 256,
+  min_p: 0.05,
+  max_tokens: 256,
 };
+
+// Old keys from the browser-inference version; ignore them when restoring.
+const LEGACY_KEYS = ["device", "max_new_tokens"];
 
 function loadSettings() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) Object.assign(settings, JSON.parse(raw));
   } catch {}
-  if (!settings.device) settings.device = "auto";
+  for (const key of LEGACY_KEYS) delete settings[key];
 }
 function saveSettings() {
   try {
@@ -105,27 +108,30 @@ function setBusy(busy) {
   inputEl.disabled = busy;
 }
 
-function showProgress(info) {
-  if (info.status === "fallback") {
+function showProgress(status) {
+  const { phase, progress, error } = status || {};
+  if (phase === "error") {
+    progressEl.hidden = false;
+    progressFill.style.width = "0%";
+    progressText.textContent = `model failed: ${error || "unknown error"}`;
+    return;
+  }
+  if (phase === "downloading" && progress) {
+    progressEl.hidden = false;
+    const pct = Math.round((progress.downloadProgress || 0) * 100);
+    progressFill.style.width = `${pct}%`;
+    const mb = progress.sizeMb ? `${progress.sizeMb.toFixed(0)} MiB` : "";
+    const total = progress.totalMb ? ` / ${progress.totalMb.toFixed(0)} MiB` : "";
+    progressText.textContent = `downloading ${progress.file || "GGUF"} — ${pct}%${mb ? ` (${mb}${total})` : ""}`;
+    return;
+  }
+  if (phase === "loading") {
     progressEl.hidden = false;
     progressFill.style.width = "100%";
-    progressText.textContent = info.message;
+    progressText.textContent = "loading weights into llama.cpp…";
     return;
   }
-  if (info.status === "done" || info.status === "ready") {
-    progressEl.hidden = true;
-    return;
-  }
-  if (info.status === "progress" && info.total) {
-    progressEl.hidden = false;
-    const pct = Math.round((info.loaded / info.total) * 100);
-    progressFill.style.width = `${pct}%`;
-    const file = (info.file || "").split("/").pop();
-    progressText.textContent = `downloading ${file} — ${pct}%`;
-  } else if (info.status) {
-    progressEl.hidden = false;
-    progressText.textContent = String(info.status);
-  }
+  progressEl.hidden = true;
 }
 
 /* ------------------------------ the engine ------------------------------ */
@@ -136,23 +142,34 @@ function ensureEngine() {
   if (engine) return engine;
   engine = new SmolEngine({
     modelId: settings.modelId,
-    device: settings.device,
-    onProgress: showProgress,
+    systemPrompt: settings.systemPrompt.trim(),
   });
+  engine.onStatus(showProgress);
   return engine;
 }
 
-async function warmUp() {
-  setStatus("loading", "loading weights");
+async function warmUp({ modelId, force = false } = {}) {
+  setStatus("loading", "connecting");
+  progressEl.hidden = false;
+  progressFill.style.width = "0%";
+  progressText.textContent = "contacting llama.cpp backend…";
+
+  // load() fails fast (with a clear message) if `npm start` isn't running.
+  const e = ensureEngine();
   try {
-    await ensureEngine().load();
-    setStatus("ready", `${engine.device} · ready`);
+    const status = await e.load({
+      modelId: modelId || settings.modelId || undefined,
+      systemPrompt: settings.systemPrompt.trim(),
+      force,
+    });
+    setStatus("ready", `${status.backend || "cpu"} · ready`);
     progressEl.hidden = true;
   } catch (err) {
     console.error(err);
-    setStatus("error", "load failed");
-    progressText.textContent = String(err?.message || err);
+    setStatus("error", "backend unavailable");
     progressEl.hidden = false;
+    progressFill.style.width = "0%";
+    progressText.textContent = `Could not start the model: ${err?.message || err}`;
   }
 }
 
@@ -183,17 +200,13 @@ async function send(text) {
   setStatus("thinking", "thinking");
 
   try {
-    const messages = [
-      ...(settings.systemPrompt.trim()
-        ? [{ role: "system", content: settings.systemPrompt.trim() }]
-        : []),
-      ...history,
-    ].filter((m) => m.content);
+    const messages = history.filter((m) => m.content);
 
-    const { text: reply, interrupted } = await ensureEngine().chat(messages, {
+    const reply = await ensureEngine().chat(messages, {
       temperature: settings.temperature,
       top_p: settings.top_p,
-      max_new_tokens: settings.max_new_tokens,
+      min_p: settings.min_p,
+      max_tokens: settings.max_tokens,
       onToken: (chunk) => {
         acc += chunk;
         if (!rafPending) {
@@ -202,15 +215,18 @@ async function send(text) {
         }
       },
       onStats: (s) => {
-        const tps = s.tokensPerSecond.toFixed(1);
-        setStatus("ready", `${s.device} · ${tps} tok/s`);
+        const tps = Number(s.tokensPerSecond || 0).toFixed(1);
+        const where = s.backend ? ` · ${s.backend}` : "";
+        setStatus("ready", `${tps} tok/s${where}`);
+        if (s.contextUsed && s.contextSize) {
+          console.info(`context: ${s.contextUsed}/${s.contextSize} tokens`);
+        }
       },
     });
 
     acc = reply || acc;
-    bubble.innerHTML = renderMarkdown(acc || "_(no reply — try a longer max tokens setting)_");
+    bubble.innerHTML = renderMarkdown(acc || "_(no reply — try a different prompt)_");
     if (reply) history.push({ role: "assistant", content: reply });
-    if (interrupted) setStatus("ready", `${engine.device} · stopped`);
     persistHistory();
   } catch (err) {
     console.error(err);
@@ -271,7 +287,7 @@ document.querySelectorAll(".suggestions button").forEach((b) =>
 );
 
 $("resetBtn").addEventListener("click", () => {
-  engine?.stop?.();
+  ensureEngine().reset();
   history = [];
   persistHistory();
   chatEl.querySelectorAll(".msg").forEach((n) => n.remove());
@@ -284,7 +300,7 @@ $("resetBtn").addEventListener("click", () => {
 // --------- settings dialog ---------
 const sysEl = $("systemPrompt");
 const modelEl = $("modelId");
-const deviceEl = $("device");
+const minPEl = $("minP");
 const tempEl = $("temperature");
 const topPEl = $("topP");
 const maxTokEl = $("maxTokens");
@@ -292,13 +308,14 @@ const maxTokEl = $("maxTokens");
 function syncSettingsUI() {
   sysEl.value = settings.systemPrompt;
   modelEl.value = settings.modelId;
-  deviceEl.value = settings.device;
+  minPEl.value = settings.min_p;
   tempEl.value = settings.temperature;
   topPEl.value = settings.top_p;
-  maxTokEl.value = settings.max_new_tokens;
+  maxTokEl.value = settings.max_tokens;
   $("tempOut").textContent = Number(settings.temperature).toFixed(2);
   $("topPOut").textContent = Number(settings.top_p).toFixed(2);
-  $("maxTokOut").textContent = settings.max_new_tokens;
+  $("maxTokOut").textContent = settings.max_tokens;
+  $("minPOut").textContent = Number(settings.min_p).toFixed(2);
 }
 
 $("settingsBtn").addEventListener("click", () => {
@@ -309,28 +326,27 @@ $("settingsBtn").addEventListener("click", () => {
 tempEl.addEventListener("input", () => ($("tempOut").textContent = Number(tempEl.value).toFixed(2)));
 topPEl.addEventListener("input", () => ($("topPOut").textContent = Number(topPEl.value).toFixed(2)));
 maxTokEl.addEventListener("input", () => ($("maxTokOut").textContent = maxTokEl.value));
+minPEl.addEventListener("input", () => ($("minPOut").textContent = Number(minPEl.value).toFixed(2)));
 
 settingsEl.addEventListener("close", async () => {
   const prev = { ...settings };
   settings.systemPrompt = sysEl.value;
-  settings.modelId = modelEl.value.trim() || prev.modelId;
-  settings.device = deviceEl.value;
+  settings.modelId = modelEl.value.trim();
+  settings.min_p = Number(minPEl.value);
   settings.temperature = Number(tempEl.value);
   settings.top_p = Number(topPEl.value);
-  settings.max_new_tokens = Number(maxTokEl.value);
+  settings.max_tokens = Number(maxTokEl.value);
   saveSettings();
 
-  const needsReload =
-    settingsEl.returnValue === "reload" ||
-    settings.modelId !== prev.modelId ||
-    settings.device !== prev.device;
+  // Temperature/top-p apply per request; the system prompt resets the model's memory.
+  if (settings.systemPrompt !== prev.systemPrompt) {
+    ensureEngine().applySystemPrompt(settings.systemPrompt.trim());
+  }
+  const needsReload = settingsEl.returnValue === "reload" || settings.modelId !== prev.modelId;
 
   if (needsReload) {
     engine = null;
-    progressEl.hidden = false;
-    progressFill.style.width = "0%";
-    progressText.textContent = "loading weights…";
-    await warmUp();
+    await warmUp({ modelId: settings.modelId || undefined });
   }
 });
 
@@ -343,11 +359,22 @@ document.addEventListener("keydown", (e) => {
 loadSettings();
 syncSettingsUI();
 restoreHistory();
-setStatus("idle", `idle · ${defaultDevice()} available`);
-// Kick off the load lazily on first interaction, but start warming after a beat
-// so the user sees progress while they read the intro.
-setTimeout(() => {
-  progressEl.hidden = false;
-  progressText.textContent = "waking up…";
-  warmUp();
-}, 600);
+setStatus("idle", "idle");
+// The server may already have the model resident (or be mid-download): ask for
+// status right away and warm up if needed.
+(async () => {
+  const status = await ensureEngine().refreshStatus();
+  if (!status) {
+    setStatus("error", "backend offline");
+    progressEl.hidden = false;
+    progressFill.style.width = "0%";
+    progressText.textContent = "No llama.cpp backend found — run `npm start` and open the URL it prints.";
+    return;
+  }
+  if (status.phase === "ready") {
+    setStatus("ready", `${status.backend || "cpu"} · ready`);
+    return;
+  }
+  if (status.phase === "error") return showProgress(status);
+  setTimeout(() => warmUp(), 400);
+})();

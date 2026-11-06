@@ -280,3 +280,7 @@ html, body {
   .names p { display: none; }
   .msg .bubble { max-width: 82vw; }
 }
+
+/* settings hint */
+.settings .hint { margin: 0; font-size: 11.5px; line-height: 1.5; color: #6d7790; }
+.settings .hint code { font-family: var(--mono); color: #9fabc2; }

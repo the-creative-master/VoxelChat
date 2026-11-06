@@ -1,205 +1,195 @@
-// Tiny wrapper around Transformers.js (v3+) for running SmolLM2 in the browser.
-// The library is dynamically imported so the page itself stays instant.
+// Client for the local node-llama.cpp server (smol/llm.mjs).
+// Generation streams back as newline-delimited JSON; we hand chunks to the UI
+// as they arrive and can abort mid-reply.
 
-const CDN = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.6";
+const BASE = ""; // same origin as the page
 
-let libPromise = null;
-
-async function getLib() {
-  if (!libPromise) {
-    libPromise = (async () => {
-      // Prefer a vendored copy (npm run vendor) so the app can run offline;
-      // otherwise pull the same build from jsDelivr.
-      let lib;
-      try {
-        lib = await import(/* @vite-ignore */ "./vendor/transformers/transformers.web.min.js");
-      } catch {
-        lib = await import(/* @vite-ignore */ CDN);
-      }
-      lib.env.allowLocalModels = false;
-      lib.env.useBrowserCache = true;
-
-      // If ONNX Runtime's WASM binaries were vendored (npm run vendor), point
-      // the runtime at them instead of the jsDelivr default.
-      const base = new URL("./vendor/ort/", import.meta.url).href;
-      const ort = lib.env.backends?.onnx?.wasm;
-      if (ort) {
-        try {
-          const head = await fetch(`${base}ort-wasm-simd-threaded.jsep.wasm`, { method: "HEAD" });
-          if (head.ok) ort.wasmPaths = base;
-        } catch {
-          /* offline CDN copy is the fallback */
-        }
-      }
-      return lib;
-    })();
-  }
-  return libPromise;
-}
-
-export function isWebGPUAvailable() {
-  return typeof navigator !== "undefined" && "gpu" in navigator;
-}
-
-export function defaultDevice() {
-  return isWebGPUAvailable() ? "webgpu" : "wasm";
+async function postJson(path, body, signal) {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+    signal,
+  });
+  if (!res.ok) throw new Error(`${path} → HTTP ${res.status}`);
+  return res.json().catch(() => ({}));
 }
 
 export class SmolEngine {
   /**
-   * @param {{modelId?:string, device?:'auto'|'webgpu'|'wasm',
-   *          onProgress?:(info:object)=>void}} [opts]
+   * @param {{modelId?:string, systemPrompt?:string}} [opts]
    */
-  constructor({ modelId, device, onProgress } = {}) {
-    this.modelId = modelId || "onnx-community/SmolLM2-1.7B-Instruct";
-    this.requestedDevice = device || "auto";
-    this.device = this.requestedDevice === "auto" ? defaultDevice() : this.requestedDevice;
-    this.onProgress = onProgress || (() => {});
-    this.tokenizer = null;
-    this.model = null;
-    this._loading = null;
-    this._interrupt = null;
+  constructor({ modelId, systemPrompt } = {}) {
+    this.modelId = modelId || "";
+    this.systemPrompt = systemPrompt || "";
+    this.status = { phase: "idle", progress: null, backend: null, contextSize: 0 };
+    this._poll = null;
+    this._abort = null;
+    this._onStatus = () => {};
   }
 
   get ready() {
-    return Boolean(this.model && this.tokenizer);
+    return this.status.phase === "ready";
   }
 
-  async load() {
-    if (this.ready) return this;
-    if (!this._loading) {
-      this._loading = this.#load().catch((err) => {
-        this._loading = null;
-        throw err;
-      });
-    }
-    return this._loading;
-  }
-
-  async #load() {
-    const t = await getLib();
-    const progress_callback = (info) => this.onProgress(info);
-
-    const loadTokenizer = async () =>
-      (this.tokenizer ||= await t.AutoTokenizer.from_pretrained(this.modelId, {
-        progress_callback,
-      }));
-
-    const attempt = async (device) => {
-      // q4 keeps the 1.7B checkpoint around ~1.1 GB; q4f16 is the WebGPU sweet spot.
-      const dtype = device === "webgpu" ? "q4f16" : "q4";
-      this.tokenizer = await loadTokenizer();
-      this.model = await t.AutoModelForCausalLM.from_pretrained(this.modelId, {
-        dtype,
-        device,
-        progress_callback,
-      });
-      this.device = device;
-    };
-
-    try {
-      await attempt(this.device);
-    } catch (err) {
-      if (this.device !== "webgpu") throw err;
-      this.onProgress({
-        status: "fallback",
-        message: `WebGPU unavailable (${err?.message || err}) — using CPU/WASM`,
-      });
-      await attempt("wasm");
-    }
+  onStatus(fn) {
+    this._onStatus = fn;
     return this;
   }
 
-  buildPrompt(messages) {
-    // SmolLM2 ships a ChatML-style template in its tokenizer_config.json.
-    try {
-      return this.tokenizer.apply_chat_template(messages, {
-        tokenize: false,
-        add_generation_prompt: true,
-      });
-    } catch {
-      // Fallback for checkpoints without a chat_template.
-      const turns = messages
-        .map((m) => `<|im_start|>${m.role}\n${m.content}<|im_end|>\n`)
-        .join("");
-      return `${turns}<|im_start|>assistant\n`;
+  setSystemPrompt(prompt) {
+    this.systemPrompt = prompt || "";
+  }
+
+  /** Apply a new system prompt server-side; keeps the weights loaded, resets chat memory. */
+  async applySystemPrompt(prompt) {
+    this.setSystemPrompt(prompt);
+    return postJson("/api/load", { systemPrompt: this.systemPrompt }).catch(() => {});
+  }
+
+  /** Ask the server to load (downloading the GGUF if needed) and report progress. */
+  async load({ onStatus, modelId, systemPrompt } = {}) {
+    if (onStatus) this._onStatus = onStatus;
+
+    // Fail fast with a clear message if the node-llama.cpp server isn't running.
+    if (!(await this.refreshStatus())) {
+      throw new Error("no llama.cpp backend — start it with `npm start`");
     }
+    if (modelId) this.modelId = modelId;
+    if (systemPrompt !== undefined) this.systemPrompt = systemPrompt;
+
+    if (this.ready) return this.status;
+
+    await postJson("/api/load", {
+      modelId: this.modelId || undefined,
+      systemPrompt: this.systemPrompt,
+    });
+
+    // Poll until ready, error, or the tab is closed.
+    if (!this._poll) {
+      this._poll = new Promise((resolve, reject) => {
+        const tick = async () => {
+          try {
+            const res = await fetch(`${BASE}/api/status`, { cache: "no-store" });
+            this.status = await res.json();
+            this._onStatus(this.status);
+            if (this.status.phase === "ready") return resolve(this.status);
+            if (this.status.phase === "error")
+              return reject(new Error(this.status.error || "model failed to load"));
+            setTimeout(tick, 700);
+          } catch (err) {
+            reject(err);
+          }
+        };
+        tick();
+      }).finally(() => {
+        this._poll = null;
+      });
+    }
+    return this._poll;
+  }
+
+  async refreshStatus() {
+    try {
+      const res = await fetch(`${BASE}/api/status`, { cache: "no-store" });
+      this.status = await res.json();
+      this._onStatus(this.status);
+    } catch {
+      return null; // backend not reachable
+    }
+    return this.status;
   }
 
   /**
-   * Stream a reply token by token.
-   * @param {Array<{role:string, content:string}>} messages
-   * @param {{temperature?:number, top_p?:number, max_new_tokens?:number,
-   *          onToken?:(chunk:string)=>void, onStats?:(s:object)=>void}} [opts]
-   * @returns {Promise<{text:string, interrupted:boolean}>}
+   * Stream a reply.
+   * @param {Array<{role:'user'|'assistant', content:string}>} messages
+   * @param {{temperature?:number, top_p?:number, min_p?:number, max_tokens?:number,
+   *          onToken?:(t:string)=>void, onStats?:(s:object)=>void}} [opts]
+   * @returns {Promise<string>} full reply text
    */
   async chat(messages, opts = {}) {
-    await this.load();
-    const t = await getLib();
+    const abort = new AbortController();
+    this._abort = abort;
 
-    const inputs = await this.tokenizer(this.buildPrompt(messages));
-    const promptLength = inputs.input_ids.dims.at(-1);
-
-    const interrupt = new t.InterruptableStoppingCriteria();
-    this._interrupt = interrupt;
-
-    let full = "";
-    let tokens = 0;
-    let firstTokenMs = null;
-    const startedAt = performance.now();
-
-    const streamer = new t.TextStreamer(this.tokenizer, {
-      skip_prompt: true,
-      skip_special_tokens: true,
-      callback_function: (chunk) => {
-        if (!chunk) return;
-        if (firstTokenMs === null) firstTokenMs = performance.now() - startedAt;
-        tokens++;
-        full += chunk;
-        opts.onToken?.(chunk);
-      },
-    });
-
-    try {
-      const out = await this.model.generate({
-        ...inputs,
-        max_new_tokens: opts.max_new_tokens ?? 256,
-        do_sample: true,
+    const res = await fetch(`${BASE}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages,
         temperature: opts.temperature ?? 0.7,
         top_p: opts.top_p ?? 0.95,
-        repetition_penalty: 1.1,
-        streamer,
-        stopping_criteria: [interrupt],
-      });
-
-      // Safety net: streamer produced nothing (e.g. odd template) — decode raw.
-      if (!full && out?.sequences) {
-        const text = this.tokenizer.batch_decode(out.sequences.slice(null, [promptLength, null]), {
-          skip_special_tokens: true,
-        })[0];
-        full = text || "";
-        if (full) opts.onToken?.(full);
-      }
-    } catch (err) {
-      if (!interrupt.interrupted) throw err;
-    } finally {
-      this._interrupt = null;
-    }
-
-    const seconds = (performance.now() - startedAt) / 1000;
-    opts.onStats?.({
-      interrupted: interrupt.interrupted,
-      tokens,
-      seconds,
-      tokensPerSecond: seconds > 0 ? tokens / seconds : 0,
-      ttftMs: firstTokenMs,
-      device: this.device,
+        min_p: opts.min_p,
+        max_tokens: opts.max_tokens ?? 256,
+      }),
+      signal: abort.signal,
     });
 
-    return { text: full.trim(), interrupted: interrupt.interrupted };
+    if (!res.ok || !res.body) {
+      const detail = await res.text().catch(() => "");
+      throw new Error(`chat failed (HTTP ${res.status}) ${detail.slice(0, 200)}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let full = "";
+    let stats = null;
+    let failure = null;
+
+    const handleLine = (line) => {
+      if (!line.trim()) return;
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch {
+        return;
+      }
+      if (event.type === "chunk" && event.text) {
+        full += event.text;
+        opts.onToken?.(event.text);
+      } else if (event.type === "done") {
+        if (event.text) full = event.text;
+        stats = event;
+      } else if (event.type === "error") {
+        failure = event.message;
+      }
+    };
+
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buffer.indexOf("\n")) !== -1) {
+          handleLine(buffer.slice(0, idx));
+          buffer = buffer.slice(idx + 1);
+        }
+      }
+      handleLine(buffer);
+    } catch (err) {
+      if (!abort.signal.aborted) throw err;
+    } finally {
+      if (this._abort === abort) this._abort = null;
+    }
+
+    if (failure) throw new Error(failure);
+    if (stats) opts.onStats?.(stats);
+    return full.trim();
   }
 
   stop() {
-    this._interrupt?.interrupt();
+    this._abort?.abort();
+    // Also tell the server to drop the in-flight evaluation.
+    postJson("/api/stop").catch(() => {});
   }
+
+  reset() {
+    this.stop();
+    return postJson("/api/reset").catch(() => {});
+  }
+}
+
+export function isWebGPUAvailable() {
+  return false; // inference is native here; GPU is handled by llama.cpp
 }

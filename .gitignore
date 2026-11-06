@@ -4,5 +4,6 @@ node_modules/
 npm-debug.log*
 .DS_Store
 
-# vendored runtime (regenerate with: npm run vendor)
-smol/vendor/
+# downloaded / built GGUF weights
+models/
+*.gguf

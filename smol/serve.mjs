@@ -1,13 +1,27 @@
-// Zero-dependency static server for the Smol chat.
+// Smol server: static UI + a small streaming inference API backed by node-llama.cpp.
 //   node smol/serve.mjs [port]
 //
-// Serves the smol/ folder with the headers WebGPU + multi-threaded WASM want
-// (COOP/COEP) and a range-less, cache-friendly model file passthrough.
+// Routes
+//   GET  /                     chat UI
+//   GET  /api/status           model/backend/download state
+//   POST /api/load             {modelId?, systemPrompt?} start download+load
+//   POST /api/chat             {messages, temperature, top_p, min_p, max_tokens}
+//                              → NDJSON stream of {type:"chunk"|"done"|"error"}
+//   POST /api/stop             abort the running generation
+//   POST /api/reset            drop the conversation (keeps the model in RAM)
 
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  DEFAULT_MODEL,
+  chat,
+  ensureModel,
+  getState,
+  resetConversation,
+  stopGeneration,
+} from "./llm.mjs";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PORT = Number(process.argv[2] || process.env.PORT || 5173);
@@ -19,57 +33,191 @@ const TYPES = {
   ".mjs": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8",
-  ".wasm": "application/wasm",
-  ".onnx": "application/octet-stream",
   ".svg": "image/svg+xml",
   ".png": "image/png",
   ".ico": "image/x-icon",
   ".map": "application/json; charset=utf-8",
 };
 
-function headers(type) {
-  return {
-    "Content-Type": type,
-    // Not strictly required for WebGPU, but enables multi-threaded WASM.
-    "Cross-Origin-Opener-Policy": "same-origin",
-    "Cross-Origin-Embedder-Policy": "credentialless",
-    "Cross-Origin-Resource-Policy": "cross-origin",
-    "Cache-Control": "public, max-age=3600",
-  };
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "content-type",
+  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+};
+
+function json(res, status, body) {
+  const payload = JSON.stringify(body);
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    ...CORS,
+  });
+  res.end(payload);
+}
+
+async function readBody(req, limit = 2 * 1024 * 1024) {
+  let size = 0;
+  const chunks = [];
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limit) throw new Error("request body too large");
+    chunks.push(chunk);
+  }
+  if (!chunks.length) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new Error("invalid JSON body");
+  }
+}
+
+// ---------------------------------------------------------------- API
+
+async function handleApi(req, res, url) {
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, CORS).end();
+    return true;
+  }
+
+  if (url.pathname === "/api/status" && req.method === "GET") {
+    json(res, 200, { ...getState(), defaultModel: DEFAULT_MODEL });
+    return true;
+  }
+
+  if (url.pathname === "/api/load" && req.method === "POST") {
+    const body = await readBody(req);
+    const modelId = body.modelId || DEFAULT_MODEL;
+    const systemPrompt = body.systemPrompt || "";
+    // Kick off load in the background; the client polls /api/status for progress.
+    ensureModel({ modelUri: modelId, sysPrompt: systemPrompt }).catch((err) =>
+      console.error("model load failed:", err?.message || err)
+    );
+    json(res, 202, { ok: true, modelId });
+    return true;
+  }
+
+  if (url.pathname === "/api/chat" && req.method === "POST") {
+    const body = await readBody(req);
+    const messages = Array.isArray(body.messages) ? body.messages : [];
+
+    res.writeHead(200, {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Accel-Buffering": "no",
+      ...CORS,
+    });
+
+    // If the browser goes away mid-generation, stop burning CPU.
+    let closed = false;
+    res.on("close", () => {
+      if (!res.writableEnded) {
+        closed = true;
+        stopGeneration();
+      }
+    });
+
+    const emit = (event) => {
+      if (closed || res.writableEnded) return;
+      res.write(JSON.stringify(event) + "\n");
+    };
+
+    try {
+      if (!getState().phase || getState().phase !== "ready") {
+        emit({ type: "chunk", text: "" }); // open the stream so the UI can react
+        await ensureModel();
+      }
+      await chat(
+        messages,
+        {
+          temperature: body.temperature,
+          top_p: body.top_p,
+          min_p: body.min_p,
+          max_tokens: body.max_tokens,
+        },
+        emit
+      );
+    } catch (err) {
+      emit({ type: "error", message: String(err?.message || err) });
+    } finally {
+      if (!res.writableEnded) res.end();
+    }
+    return true;
+  }
+
+  if (url.pathname === "/api/stop" && req.method === "POST") {
+    stopGeneration();
+    json(res, 200, { ok: true });
+    return true;
+  }
+
+  if (url.pathname === "/api/reset" && req.method === "POST") {
+    resetConversation();
+    json(res, 200, { ok: true });
+    return true;
+  }
+
+  return false;
+}
+
+// ------------------------------------------------------------- static
+
+async function handleStatic(req, res, url) {
+  let pathname = decodeURIComponent(url.pathname);
+  if (pathname.endsWith("/")) pathname += "index.html";
+
+  const target = normalize(join(ROOT, pathname));
+  if (!target.startsWith(ROOT.endsWith(sep) ? ROOT : ROOT + sep)) {
+    res.writeHead(403).end("forbidden");
+    return;
+  }
+
+  const info = await stat(target).catch(() => null);
+  if (!info || !info.isFile()) {
+    if (!extname(pathname)) {
+      const html = await readFile(join(ROOT, "index.html"));
+      res.writeHead(200, { "Content-Type": TYPES[".html"] }).end(html);
+      return;
+    }
+    res.writeHead(404, { "Content-Type": "text/plain" }).end("not found");
+    return;
+  }
+
+  const type = TYPES[extname(target).toLowerCase()] || "application/octet-stream";
+  const body = await readFile(target);
+  res
+    .writeHead(200, { "Content-Type": type, "Content-Length": body.length, "Cache-Control": "no-cache" })
+    .end(body);
 }
 
 const server = createServer(async (req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   try {
-    const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-    let pathname = decodeURIComponent(url.pathname);
-    if (pathname.endsWith("/")) pathname += "index.html";
-
-    const target = normalize(join(ROOT, pathname));
-    if (!target.startsWith(ROOT.endsWith(sep) ? ROOT : ROOT + sep)) {
-      res.writeHead(403).end("forbidden");
+    if (url.pathname.startsWith("/api/")) {
+      const handled = await handleApi(req, res, url);
+      if (!handled) json(res, 404, { error: "unknown endpoint" });
       return;
     }
-
-    const info = await stat(target).catch(() => null);
-    if (!info || !info.isFile()) {
-      // SPA-ish fallback so /anything still opens the chat.
-      if (!extname(pathname)) {
-        const html = await readFile(join(ROOT, "index.html"));
-        res.writeHead(200, headers(TYPES[".html"])).end(html);
-        return;
-      }
-      res.writeHead(404, { "Content-Type": "text/plain" }).end("not found");
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      res.writeHead(405, CORS).end("method not allowed");
       return;
     }
-
-    const type = TYPES[extname(target).toLowerCase()] || "application/octet-stream";
-    const body = await readFile(target);
-    res.writeHead(200, { ...headers(type), "Content-Length": body.length }).end(body);
+    await handleStatic(req, res, url);
   } catch (err) {
-    res.writeHead(500, { "Content-Type": "text/plain" }).end(String(err?.message || err));
+    console.error(err);
+    if (!res.headersSent) res.writeHead(500, { "Content-Type": "text/plain" });
+    res.end(String(err?.message || err));
   }
 });
 
 server.listen(PORT, HOST, () => {
   console.log(`Smol is running → http://localhost:${PORT}`);
+  console.log(`model: ${DEFAULT_MODEL} (cached in ./models)`);
 });
+
+for (const sig of ["SIGINT", "SIGTERM"]) {
+  process.on(sig, () => {
+    stopGeneration();
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 1500).unref();
+  });
+}

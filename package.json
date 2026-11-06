@@ -2,14 +2,16 @@
   "name": "smol-voxelchat",
   "version": "1.0.0",
   "private": true,
-  "description": "Smol — a SmolLM2-1.7B-Instruct character running entirely in the browser via Transformers.js",
+  "description": "Smol — a SmolLM2-1.7B-Instruct character served by node-llama.cpp",
   "scripts": {
     "start": "node smol/serve.mjs",
-    "dev": "node smol/serve.mjs",
-    "vendor": "node scripts/vendor.mjs"
+    "dev": "node smol/serve.mjs"
   },
   "dependencies": {
-    "@huggingface/transformers": "3.7.6"
+    "node-llama-cpp": "^3.22.3"
   },
-  "type": "module"
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  }
 }
