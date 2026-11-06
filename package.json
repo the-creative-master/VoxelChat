@@ -1,11 +1,18 @@
 {
-  "name": "voxelchat",
-  "version": "1.1.0",
+  "name": "smol-voxelchat",
+  "version": "1.0.0",
   "private": true,
-  "description": "Static GitHub Pages AI chat and image generation interface",
+  "description": "Smol — a SmolLM2-1.7B-Instruct character served by node-llama.cpp",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
+    "start": "node smol/serve.mjs",
+    "dev": "node smol/serve.mjs",
+    "doctor": "node smol/doctor.mjs"
   },
-  "license": "MIT"
+  "dependencies": {
+    "node-llama-cpp": "^3.22.3"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  }
 }

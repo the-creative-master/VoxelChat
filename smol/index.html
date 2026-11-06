@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Smol — a SmolLM2 1.7B character</title>
+<link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="me">
+        <div class="avatar" id="avatar" aria-hidden="true">
+          <span class="eye"></span><span class="eye"></span>
+        </div>
+        <div class="names">
+          <h1>Smol</h1>
+          <p>node-llama.cpp · <code>SmolLM2-1.7B-Instruct Q4_K_M</code></p>
+        </div>
+      </div>
+      <div class="controls">
+        <span class="pill" id="status" data-state="idle"><i class="dot"></i><span id="statusText">idle</span></span>
+        <button id="settingsBtn" class="ghost" title="Settings">⚙︎</button>
+        <button id="resetBtn" class="ghost" title="Clear chat">⟲</button>
+      </div>
+    </header>
+
+    <div class="progress" id="progress" hidden>
+      <div class="bar"><div class="fill" id="progressFill"></div></div>
+      <span id="progressText">preparing…</span>
+    </div>
+
+    <main id="chat" class="chat" aria-live="polite">
+      <div class="empty" id="empty">
+        <h2>Say hi to Smol</h2>
+        <p>A 1.7B-parameter character running on llama.cpp on this machine. The first run downloads the ~1.1 GB GGUF once (into <code>models/</code>); after that it loads in seconds.</p>
+        <div class="suggestions">
+          <button data-say="Who are you, exactly?">Who are you?</button>
+          <button data-say="Explain quantization to me like I'm five.">Quantization, ELI5</button>
+          <button data-say="Write a haiku about tiny models on big machines.">A haiku</button>
+          <button data-say="What's the difference between you and a huge model?">You vs. a giant</button>
+        </div>
+      </div>
+    </main>
+
+    <form id="composer" class="composer">
+      <textarea id="input" rows="1" placeholder="Message Smol…  (Enter to send, Shift+Enter for a newline)" autocomplete="off"></textarea>
+      <button id="sendBtn" type="submit" class="send" title="Send">↑</button>
+      <button id="stopBtn" type="button" class="stop" title="Stop" hidden>■</button>
+    </form>
+    <p class="foot">Inference runs natively through node-llama.cpp on this machine — no cloud API, nothing leaves your computer.</p>
+    <p class="foot" id="modelHint" hidden></p>
+  </div>
+
+  <dialog id="settings" class="settings">
+    <form method="dialog">
+      <h3>Smol's dials</h3>
+      <label>System prompt
+        <textarea id="systemPrompt" rows="3"></textarea>
+      </label>
+      <label>Model id
+        <input id="modelId" spellcheck="false" placeholder="hf:bartowski/SmolLM2-1.7B-Instruct-GGUF:Q4_K_M" />
+      </label>
+      <label>Min-p <output id="minPOut">0.05</output>
+        <input id="minP" type="range" min="0" max="0.5" step="0.01" value="0.05" />
+      </label>
+      <label>Temperature <output id="tempOut">0.7</output>
+        <input id="temperature" type="range" min="0" max="1.5" step="0.05" value="0.7" />
+      </label>
+      <label>Top-p <output id="topPOut">0.95</output>
+        <input id="topP" type="range" min="0.1" max="1" step="0.05" value="0.95" />
+      </label>
+      <label>Max new tokens <output id="maxTokOut">256</output>
+        <input id="maxTokens" type="range" min="32" max="1024" step="32" value="256" />
+      </label>
+      <p class="hint">Model changes take a moment: the GGUF is downloaded once, then cached in <code>models/</code>. A custom model id can be any <code>hf:user/repo:quant</code> URI or a local <code>.gguf</code> path.</p>
+      <div class="actions">
+        <button value="cancel" class="ghost">Close</button>
+        <button id="reloadBtn" value="reload" class="primary">Reload model</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="./chat.js"></script>
+</body>
+</html>
