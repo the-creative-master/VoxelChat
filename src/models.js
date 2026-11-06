@@ -28,6 +28,10 @@ export const MODELS = [
         fileName: "smollm2-1.7b-instruct-q4_k_m.gguf",
         url: "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf",
         description: "A small, fast instruction-tuned model that runs comfortably on a laptop CPU.",
+        /** Used to sanity-check that the file on disk really is this model. */
+        expectedParameters: 1.7e9,
+        /** A 1.7B Q4 file is ~1.06 GB. Anything near this floor is not this model. */
+        minFileSizeBytes: 300 * 1024 * 1024,
         enabled: true
     }
 ];

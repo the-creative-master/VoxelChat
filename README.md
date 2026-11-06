@@ -95,6 +95,7 @@ Nothing in the browser talks to the model directly; it only calls this server.
 | `GET /api/status/stream` | The same, as a live SSE feed |
 | `POST /api/model/load` | Start loading the model manually |
 | `POST /api/chat` | Stream a reply. Body: `{messages, systemPrompt}` |
+| `POST /api/chat/stop` | Stop the generation currently in flight |
 | `GET /api/model/download` | Redirects to the GGUF file on Hugging Face |
 
 `POST /api/chat` responds with server-sent events: `chunk` frames (`{text}`), then either
@@ -121,6 +122,12 @@ machine, so a long answer takes a while. `VOXELCHAT_MAX_TOKENS` caps reply lengt
 
 **Out of memory.** Close other applications, or use a smaller quant
 (`Q4_K_S` is ~999 MB) by editing the entry in `src/models.js`.
+
+**"This is a different model" on startup.** VoxelChat checks the size and parameter
+count of whatever GGUF it loads. If the file is far too small to be SmolLM2 1.7B, it
+refuses to run it, because a wrong model still loads and generates happily — it just
+produces nonsense. Delete the file in `models/` and let it download again, or fix
+`VOXELCHAT_MODEL_PATH`.
 
 ## Notes
 

@@ -535,8 +535,20 @@ els.prompt.addEventListener("keydown", event => {
   }
 });
 
-els.stopBtn.addEventListener("click", () => {
+els.stopBtn.addEventListener("click", async () => {
+  // Tell the server to stop explicitly. Relying only on aborting the fetch can leave the
+  // server generating in the background: the request may already have been fully sent,
+  // so the dropped connection is not always noticed.
+  els.stopBtn.disabled = true;
+
+  try {
+    await fetch("/api/chat/stop", {method: "POST"});
+  } catch {
+    /* The server may be unreachable; the local abort below still cleans up the UI. */
+  }
+
   state.aborter?.abort();
+  els.stopBtn.disabled = false;
 });
 
 els.newChat.addEventListener("click", () => {

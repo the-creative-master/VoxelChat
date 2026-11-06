@@ -27,6 +27,13 @@ const AUTO_LOAD = process.env.VOXELCHAT_AUTO_LOAD !== "false";
 
 const app = express();
 app.use(express.json({limit: "1mb"}));
+
+/**
+ * Handle for the generation currently in flight, so a stop request can abort it
+ * without waiting for the client connection to be noticed as closed.
+ * @type {{abort: () => void} | null}
+ */
+let activeGeneration = null;
 app.use(express.static(PUBLIC_DIR));
 
 /* ---------------------------------- status --------------------------------- */
@@ -108,15 +115,21 @@ app.post("/api/chat", async (req, res) => {
     const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
     const abortController = new AbortController();
+    const abort = () => abortController.abort();
     let clientGone = false;
 
-    // If the browser disconnects or the user hits Stop, halt generation.
+    // Halt generation when the browser disconnects.
     // `res` is used rather than `req`: with Express, `req`'s "close" can fire once the
     // request body has been read, which would abort generation immediately.
     res.on("close", () => {
         clientGone = true;
-        if (!res.writableEnded) abortController.abort();
+        if (!res.writableEnded) abort();
     });
+
+    // Also halt it on an explicit POST /api/chat/stop. Stopping must not rely solely on
+    // noticing a dropped connection, because that is unreliable across proxies, and a
+    // request that is never read to completion can keep generating server-side.
+    activeGeneration = {abort};
 
     const startedAt = Date.now();
 
@@ -147,8 +160,16 @@ app.post("/api/chat", async (req, res) => {
             });
         }
     } finally {
+        if (activeGeneration?.abort === abort) activeGeneration = null;
         res.end();
     }
+});
+
+/** Stop whatever is currently generating, if anything. Safe to call when idle. */
+app.post("/api/chat/stop", (req, res) => {
+    const wasGenerating = activeGeneration != null;
+    activeGeneration?.abort();
+    res.json({stopped: wasGenerating});
 });
 
 /* --------------------------------- download -------------------------------- */

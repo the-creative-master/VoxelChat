@@ -77,6 +77,8 @@ async function load() {
     const llama = await getLlama({logLevel: LlamaLogLevel.warn});
     const model = await llama.loadModel({modelPath});
 
+    assertModelMatchesCatalog(model, modelPath);
+
     // Never request a context larger than the model was trained on.
     const contextSize = Math.min(ACTIVE_MODEL.contextSize, model.trainContextSize);
 
@@ -141,6 +143,36 @@ async function resolveModelPath() {
             });
         }
     });
+}
+
+/**
+ * Refuse to run a file that clearly isn't the catalogued model.
+ *
+ * Without this, pointing VOXELCHAT_MODEL_PATH at any small .gguf produces a model that
+ * loads and generates happily but emits gibberish, which is very confusing to diagnose.
+ */
+function assertModelMatchesCatalog(model, modelPath) {
+    const parameters = model.parametersCount ?? 0;
+    const fileSize = model.size ?? 0;
+    const expected = ACTIVE_MODEL.expectedParameters;
+    const minBytes = ACTIVE_MODEL.minFileSizeBytes;
+
+    if (fileSize > 0 && fileSize < minBytes) {
+        throw new Error(
+            `The file at "${modelPath}" is only ${(fileSize / 1048576).toFixed(1)} MB, but ` +
+            `${ACTIVE_MODEL.name} should be about ${ACTIVE_MODEL.approxSize}. This is a different model — ` +
+            `it would load but produce nonsense output. Delete it or point VOXELCHAT_MODEL_PATH at the real file.`
+        );
+    }
+
+    // parametersCount is only available for some builds; skip the check when it is 0.
+    if (parameters > 0 && expected > 0 && Math.abs(parameters - expected) / expected > 0.5) {
+        throw new Error(
+            `The file at "${modelPath}" has ${(parameters / 1e9).toFixed(2)}B parameters, but ` +
+            `${ACTIVE_MODEL.name} has roughly ${(expected / 1e9).toFixed(1)}B. This is a different model — ` +
+            `delete it or point VOXELCHAT_MODEL_PATH at the real file.`
+        );
+    }
 }
 
 function describeDevice(llama) {
