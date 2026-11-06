@@ -5,7 +5,8 @@
   "description": "Smol — a SmolLM2-1.7B-Instruct character served by node-llama.cpp",
   "scripts": {
     "start": "node smol/serve.mjs",
-    "dev": "node smol/serve.mjs"
+    "dev": "node smol/serve.mjs",
+    "doctor": "node smol/doctor.mjs"
   },
   "dependencies": {
     "node-llama-cpp": "^3.22.3"

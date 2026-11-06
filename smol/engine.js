@@ -147,6 +147,8 @@ export class SmolEngine {
       if (event.type === "chunk" && event.text) {
         full += event.text;
         opts.onToken?.(event.text);
+      } else if (event.type === "status") {
+        opts.onStatus?.({ phase: event.phase });
       } else if (event.type === "done") {
         if (event.text) full = event.text;
         stats = event;
@@ -176,6 +178,60 @@ export class SmolEngine {
     if (failure) throw new Error(failure);
     if (stats) opts.onStats?.(stats);
     return full.trim();
+  }
+
+  /**
+   * Stream a GGUF from a URL through this browser into the server's models dir.
+   * Works when the server process itself can't reach the host (firewalled sandbox,
+   * TLS interception, corporate proxy) but the browser can.
+   * @param {string} url
+   * @param {{onProgress?:(p:{received:number,total:number,fraction:number})=>void, signal?:AbortSignal}} [opts]
+   */
+  async uploadModelFromUrl(url, opts = {}) {
+    const res = await fetch(url, { signal: opts.signal, redirect: "follow" });
+    if (!res.ok) throw new Error(`download failed → HTTP ${res.status}`);
+    const total = Number(res.headers.get("content-length") || 0);
+    const name = decodeURIComponent(new URL(url).pathname.split("/").pop() || "model.gguf");
+
+    const reader = res.body.getReader();
+    const CHUNK = 16 * 1024 * 1024; // slice size; comfortably under proxy limits
+    let buf = new Uint8Array(0);
+    let received = 0;
+
+    const flush = async (blob, offset, last) => {
+      const q = new URLSearchParams({ name, offset: String(offset), last: last ? "1" : "0" });
+      const out = await fetch(`${BASE}/api/upload?${q}`, {
+        method: "POST",
+        headers: { "content-type": "application/octet-stream" },
+        body: blob,
+        signal: opts.signal,
+      });
+      const body = await out.json().catch(() => ({}));
+      if (!out.ok) throw new Error(body.error || `upload failed → HTTP ${out.status}`);
+      return body;
+    };
+
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const merged = new Uint8Array(buf.length + value.length);
+      merged.set(buf, 0);
+      merged.set(value, buf.length);
+      buf = merged;
+      received += value.length;
+
+      while (buf.length >= CHUNK) {
+        await flush(buf.slice(0, CHUNK), received - buf.length, false);
+        buf = buf.slice(CHUNK);
+      }
+      opts.onProgress?.({ received, total, fraction: total ? received / total : 0 });
+    }
+
+    if (buf.length || received === 0) {
+      await flush(buf.slice(0), received - buf.length, true);
+    }
+    opts.onProgress?.({ received, total, fraction: 1 });
+    return { ok: true, sizeMb: Math.round(received / 1048576) };
   }
 
   stop() {

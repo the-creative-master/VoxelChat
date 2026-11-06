@@ -7,7 +7,8 @@ No cloud API, no API keys — the model runs on your own machine.
 
 ```
 npm i
-npm start          # → http://localhost:5173
+npm start            # → http://localhost:5173
+npm run doctor       # if anything misbehaves: checks node, llama.cpp, model, tokenizer, inference
 ```
 
 First run downloads `bartowski/SmolLM2-1.7B-Instruct-GGUF` **Q4_K_M** (~1.05 GB) into
@@ -32,6 +33,7 @@ local API and receives tokens as they're generated.
 | `GET /api/status` | phase (`downloading`/`loading`/`ready`/`error`), download %, backend, context size |
 | `POST /api/load` | `{modelId?, systemPrompt?}` — download + load, non-blocking |
 | `POST /api/chat` | `{messages, temperature, top_p, min_p, max_tokens}` → NDJSON `{type:"chunk"}`… `{type:"done"}` |
+| `POST /api/upload?name=&offset=&last=` | chunked GGUF upload from the browser → `models/uploaded/` |
 | `POST /api/stop` | abort the running generation |
 | `POST /api/reset` | forget the conversation, keep the weights in RAM |
 
@@ -45,6 +47,17 @@ local API and receives tokens as they're generated.
 | `smol/llm.mjs` | llama.cpp side: model resolution/download, context + `LlamaChatSession`, token streaming |
 | `smol/markdown.js` | ~70-line HTML-escaping markdown renderer |
 | `smol/serve.mjs` | static server + JSON/NDJSON API |
+
+## Troubleshooting
+
+Run **`npm run doctor`** first — it reports exactly which layer fails:
+
+| Symptom | Fix |
+| --- | --- |
+| `native llama.cpp loaded` fails | `npm rebuild node-llama-cpp`, or `npx --no node-llama-cpp source download --gpu false` |
+| "couldn't reach Hugging Face" (401/TLS/fetch failed) | The server process can't reach the model host. Either download the GGUF manually and run `SMOL_MODEL=/path/to/model.gguf npm start`, **or** click **Download model in my browser** in the UI — the page fetches the file (chunked) and POSTs it to `/api/upload`, and the backend loads it from `models/uploaded/` |
+| tokenizer produced zero tokens | the file isn't a chat model (vocab-only/embedding GGUF) — use a full `*instruct*` GGUF |
+| page says "backend offline" | `npm start` isn't running; open the URL it prints (not the `.html` file directly) |
 
 ## Settings
 

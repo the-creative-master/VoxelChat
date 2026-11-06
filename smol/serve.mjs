@@ -11,14 +11,18 @@
 //   POST /api/reset            drop the conversation (keeps the model in RAM)
 
 import { createServer } from "node:http";
-import { readFile, stat } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { readFile, rename, stat, unlink } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
 import { extname, join, normalize, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DEFAULT_MODEL,
   chat,
   ensureModel,
+  ensureUploadDir,
   getState,
+  latestUploadedModel,
   resetConversation,
   stopGeneration,
 } from "./llm.mjs";
@@ -73,6 +77,10 @@ async function readBody(req, limit = 2 * 1024 * 1024) {
 
 // ---------------------------------------------------------------- API
 
+// One generation at a time: llama.cpp contexts aren't safe for concurrent prompts,
+// and overlapping requests used to wedge the session.
+let chatQueue = Promise.resolve();
+
 async function handleApi(req, res, url) {
   if (req.method === "OPTIONS") {
     res.writeHead(204, CORS).end();
@@ -80,16 +88,24 @@ async function handleApi(req, res, url) {
   }
 
   if (url.pathname === "/api/status" && req.method === "GET") {
-    json(res, 200, { ...getState(), defaultModel: DEFAULT_MODEL });
+    json(res, 200, {
+      ...getState(),
+      defaultModel: latestUploadedModel() || DEFAULT_MODEL,
+    });
     return true;
   }
 
   if (url.pathname === "/api/load" && req.method === "POST") {
     const body = await readBody(req);
-    const modelId = body.modelId || DEFAULT_MODEL;
+    const modelId =
+      body.modelId || latestUploadedModel() || DEFAULT_MODEL;
     const systemPrompt = body.systemPrompt || "";
     // Kick off load in the background; the client polls /api/status for progress.
-    ensureModel({ modelUri: modelId, sysPrompt: systemPrompt }).catch((err) =>
+    ensureModel({
+      modelUri: modelId,
+      sysPrompt: systemPrompt,
+      useLocal: Boolean(body.local),
+    }).catch((err) =>
       console.error("model load failed:", err?.message || err)
     );
     json(res, 202, { ok: true, modelId });
@@ -121,9 +137,9 @@ async function handleApi(req, res, url) {
       res.write(JSON.stringify(event) + "\n");
     };
 
-    try {
-      if (!getState().phase || getState().phase !== "ready") {
-        emit({ type: "chunk", text: "" }); // open the stream so the UI can react
+    const run = async () => {
+      if (getState().phase !== "ready") {
+        emit({ type: "status", phase: getState().phase || "loading" });
         await ensureModel();
       }
       await chat(
@@ -136,10 +152,66 @@ async function handleApi(req, res, url) {
         },
         emit
       );
-    } catch (err) {
+    };
+
+    const task = chatQueue.then(run, run).catch((err) => {
       emit({ type: "error", message: String(err?.message || err) });
-    } finally {
-      if (!res.writableEnded) res.end();
+    });
+    chatQueue = task.catch(() => {});
+    await task;
+    if (!res.writableEnded) res.end();
+    return true;
+  }
+
+  // Browser-fetched model: the page can reach Hugging Face even when this
+  // process can't, so it POSTs the raw GGUF bytes here and we keep them in
+  // models/uploaded/ and load them.
+  if (url.pathname === "/api/upload" && req.method === "POST") {
+    const name = String(url.searchParams.get("name") || "model.gguf").replace(/[^\w.\-]/g, "_");
+    if (!name.endsWith(".gguf")) {
+      json(res, 400, { error: "expected a .gguf file" });
+      return true;
+    }
+    const dir = await ensureUploadDir();
+    const target = join(dir, name);
+    const partial = `${target}.part`;
+    // Chunked upload: the browser POSTs the file in slices (?offset=N) so a ~1 GB
+    // model doesn't have to survive a single proxied request-body limit.
+    const offset = Number(url.searchParams.get("offset") ?? "0") || 0;
+    const last = url.searchParams.get("last") === "1";
+    try {
+      await pipeline(req, createWriteStream(partial, { flags: offset === 0 ? "w" : "a" }));
+      const info = await stat(partial);
+      if (!last) {
+        json(res, 200, { ok: true, partial: true, sizeMb: Math.round(info.size / 1024 / 1024) });
+        return true;
+      }
+      // Validate the GGUF magic bytes rather than guessing from the size — a
+      // blocked download usually lands an HTML/JSON error page instead.
+      const magic = await readFile(partial)
+        .then((b) => b.subarray(0, 4).toString("latin1"))
+        .catch(() => "");
+      if (magic !== "GGUF" || info.size < 4096) {
+        await unlink(partial).catch(() => {});
+        json(res, 400, {
+          error:
+            magic === "GGUF"
+              ? `file too small (${info.size} bytes)`
+              : `not a GGUF file (starts with ${JSON.stringify(magic)}) — the download was blocked or redirected to a login page`,
+        });
+        return true;
+      }
+      await unlink(target).catch(() => {});
+      await rename(partial, target);
+      json(res, 200, { ok: true, path: target, sizeMb: Math.round(info.size / 1024 / 1024) });
+      ensureModel({
+        modelUri: target,
+        useLocal: true,
+        sysPrompt: getState().systemPrompt || "",
+      }).catch((err) => console.error("uploaded model load failed:", err?.message || err));
+    } catch (err) {
+      await unlink(partial).catch(() => {});
+      json(res, 500, { error: String(err?.message || err) });
     }
     return true;
   }

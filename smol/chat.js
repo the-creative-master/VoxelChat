@@ -18,6 +18,14 @@ const DEFAULT_SYSTEM = [
   "- If you don't know something or can't do it, say so plainly instead of inventing facts.",
 ].join("\n");
 
+// Direct GGUF URLs the browser can fetch if the server itself can't reach the
+// model host (e.g. a firewalled sandbox or TLS-inspecting proxy).
+const BROWSER_SOURCES = {
+  "hf:bartowski/SmolLM2-1.7B-Instruct-GGUF:Q4_K_M":
+    "https://huggingface.co/bartowski/SmolLM2-1.7B-Instruct-GGUF/resolve/main/SmolLM2-1.7B-Instruct-Q4_K_M.gguf?download=true",
+};
+const DEFAULT_GGUF_URL = BROWSER_SOURCES["hf:bartowski/SmolLM2-1.7B-Instruct-GGUF:Q4_K_M"];
+
 const STORE_KEY = "smol-settings-v1";
 const HISTORY_KEY = "smol-history-v1";
 
@@ -138,6 +146,15 @@ function showProgress(status) {
 
 let engine = null;
 
+function showModelHint(status) {
+  const hint = $("modelHint");
+  if (!hint) return;
+  const name = status.modelPath ? status.modelPath.split(/[\\/]/).pop() : "";
+  if (!name) return;
+  hint.hidden = false;
+  hint.textContent = `model: ${name}${status.architecture ? ` (${status.architecture})` : ""} · ctx ${status.contextSize || "?"}`;
+}
+
 function ensureEngine() {
   if (engine) return engine;
   engine = new SmolEngine({
@@ -164,13 +181,57 @@ async function warmUp({ modelId, force = false } = {}) {
     });
     setStatus("ready", `${status.backend || "cpu"} · ready`);
     progressEl.hidden = true;
+    showModelHint(status);
   } catch (err) {
     console.error(err);
     setStatus("error", "backend unavailable");
     progressEl.hidden = false;
     progressFill.style.width = "0%";
     progressText.textContent = `Could not start the model: ${err?.message || err}`;
+    offerBrowserFetch(modelId || settings.modelId);
   }
+}
+
+/** The server couldn't download the weights — let this browser do it instead. */
+function offerBrowserFetch(modelId) {
+  if (document.getElementById("fetchModel")) return;
+  const url = BROWSER_SOURCES[modelId] || DEFAULT_GGUF_URL;
+  const box = document.createElement("div");
+  box.className = "fetch-offer";
+  box.innerHTML = `
+    <p><strong>Download blocked in the server sandbox.</strong>
+    Your browser can usually reach Hugging Face even when this environment can't.
+    Fetch the ~1&nbsp;GB GGUF here and hand it to llama.cpp?</p>
+    <div class="fetch-actions">
+      <button type="button" id="fetchModel" class="primary">Download model in my browser</button>
+      <span id="fetchStatus" class="fetch-status"></span>
+    </div>`;
+  progressEl.after(box);
+
+  box.querySelector("#fetchModel").addEventListener("click", async () => {
+    const btn = box.querySelector("#fetchModel");
+    const label = box.querySelector("#fetchStatus");
+    btn.disabled = true;
+    btn.textContent = "Downloading…";
+    try {
+      await ensureEngine().uploadModelFromUrl(url, {
+        onProgress: ({ received, total, fraction }) => {
+          const pct = total ? Math.round(fraction * 100) : 0;
+          label.textContent = `${(received / 1048576).toFixed(0)} MiB${total ? ` / ${(total / 1048576).toFixed(0)} MiB (${pct}%)` : ""}`;
+          progressFill.style.width = `${pct}%`;
+        },
+      });
+      label.textContent = "saved — loading…";
+      btn.textContent = "Uploaded";
+      box.remove();
+      await warmUp({ modelId: undefined });
+    } catch (err) {
+      console.error(err);
+      label.textContent = `failed: ${err?.message || err}`;
+      btn.disabled = false;
+      btn.textContent = "Retry download";
+    }
+  });
 }
 
 /* ------------------------------- chatting ------------------------------- */
@@ -214,6 +275,10 @@ async function send(text) {
           requestAnimationFrame(paint);
         }
       },
+      onStatus: (st) => {
+        if (st.phase === "downloading") setStatus("loading", "downloading model");
+        else if (st.phase === "loading") setStatus("loading", "loading model");
+      },
       onStats: (s) => {
         const tps = Number(s.tokensPerSecond || 0).toFixed(1);
         const where = s.backend ? ` · ${s.backend}` : "";
@@ -231,7 +296,11 @@ async function send(text) {
   } catch (err) {
     console.error(err);
     bubble.classList.add("error");
-    bubble.textContent = `Something broke: ${err?.message || err}`;
+    const msg = String(err?.message || err);
+    bubble.innerHTML = renderMarkdown(
+      `**Smol couldn't reply.**\n\n\`${msg}\`\n\n` +
+        "Use the **Download model in my browser** button above, or run `npm run doctor` locally for a step-by-step check."
+    );
     setStatus("error", "generation failed");
   } finally {
     setBusy(false);
@@ -373,8 +442,13 @@ setStatus("idle", "idle");
   }
   if (status.phase === "ready") {
     setStatus("ready", `${status.backend || "cpu"} · ready`);
+    showModelHint(status);
     return;
   }
-  if (status.phase === "error") return showProgress(status);
+  if (status.phase === "error") {
+    showProgress(status);
+    offerBrowserFetch(settings.modelId);
+    return;
+  }
   setTimeout(() => warmUp(), 400);
 })();
