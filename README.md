@@ -124,6 +124,36 @@ a `done` frame or an `error` frame. Aborting the request stops generation immedi
 
 ## Troubleshooting
 
+Run this first — it checks Node, memory, the install, the network, and the model file:
+
+```bash
+npm run doctor
+```
+
+### `npm install` fails
+
+`npm install` compiles nothing by default: `node-llama-cpp` ships prebuilt binaries for
+macOS (Intel and Apple Silicon), Windows x64/arm64, and Linux x64/arm64. The usual causes
+of a failed install are:
+
+1. **Node.js is too old.** Check with `node -v`; you need **20 or newer**. This is the
+   most common cause, and npm reports it as an `EBADENGINE` warning or a confusing
+   dependency error.
+2. **No prebuilt binary for your platform.** On Linux `armv7l`, `riscv64`, or unusual
+   architectures, npm falls back to building llama.cpp from source, which needs `cmake`
+   and a C++ toolchain. Install those, or fetch a binary with
+   `npx --no-install node-llama-cpp source download`.
+3. **A corporate proxy or firewall blocks `registry.npmjs.org`.**
+4. **A stale lockfile or partial `node_modules`.** Try:
+
+   ```bash
+   rm -rf node_modules package-lock.json
+   npm install
+   ```
+
+If it still fails, `npm install` prints the underlying error above its own summary —
+copy the first `ERR!` block, not the last line.
+
 **The model download stalls or fails.** The built-in downloader pulls from Hugging Face.
 You can fetch the file by hand instead:
 
