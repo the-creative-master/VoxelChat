@@ -14,9 +14,45 @@ No API keys. No accounts. Nothing you type is sent to a third party.
 - **~1.5 GB free RAM** (see [Memory use](#memory-use))
 - Any modern browser
 
+## Works on Windows, macOS and Linux
+
+Every instruction here is shell-agnostic. This matters on Windows, where `cmd` and
+PowerShell differ from bash in ways that quietly break copy-pasted commands:
+
+- **Environment variables.** `PORT=8080 npm start` is bash-only. Use one of:
+
+  ```
+  npm start --port 8080
+  ```
+
+  or set the variable first. In PowerShell:
+
+  ```
+  $env:PORT=8080; npm start
+  ```
+
+  In cmd:
+
+  ```
+  set PORT=8080 && npm start
+  ```
+
+- **Downloading the model.** `npm run fetch` rather than a `curl` command, so no
+  argument or line-continuation differences apply.
+
+- **Clearing a broken install.** `rm -rf node_modules` is not available in PowerShell.
+  Use:
+
+  ```
+  npm run clean
+  ```
+
+If a command anywhere in this README still assumes a POSIX shell, that is a bug — the
+whole point is that none of them should.
+
 ## Quick start
 
-```bash
+```
 npm install
 npm start
 ```
@@ -84,6 +120,9 @@ Append an entry to `config/models.json` — no code changes needed:
 | `VOXELCHAT_CONTEXT_SIZE` | *auto* | Context window in tokens; by default the largest that fits RAM |
 | `VOXELCHAT_MAX_TOKENS` | `512` | Maximum tokens generated per reply |
 
+`PORT` can also be passed as a flag, which avoids environment-variable syntax entirely:
+`npm start -- --port 8080`. For the others, see the shell notes at the top.
+
 ## Memory use
 
 Weights are ~1.06 GB. The KV cache grows with the context window — for SmolLM2 1.7B it
@@ -130,14 +169,16 @@ npm run doctor
 
 ### The model download fails
 
-The download comes from Hugging Face. If it is blocked, fetch the file yourself:
+The download comes from Hugging Face. Retry it on its own with:
 
-```bash
-curl -L -o cache/models/smollm2-1.7b-instruct-q4_k_m.gguf \
-  https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf
+```
+npm run fetch
 ```
 
-Then `npm start` — it will be picked up from the cache without downloading.
+That works the same in PowerShell, cmd, Git Bash, zsh and bash — there is no shell-specific
+download command to get right. If the network blocks it entirely, open the direct link
+printed by that command in a browser and save the file to the path it shows (usually
+`cache/models/`). Then `npm start`; it will be picked up from the cache.
 
 ### "The downloaded file is only X MB"
 
@@ -148,6 +189,32 @@ portal). The file is discarded rather than cached, so retrying is safe.
 
 VoxelChat checks a file's size before using it. A wrong `.gguf` still loads and generates
 without error — it just produces nonsense — so this fails loudly instead.
+
+### `npm install` fails
+
+`node-llama-cpp` ships prebuilt binaries for Windows x64/arm64, macOS (Intel and Apple
+Silicon), and Linux x64/arm64. The usual causes:
+
+1. **Node.js is too old.** `node -v` must report 20 or newer. This is the most common
+   cause, and npm reports it as an `EBADENGINE` warning buried in a dependency error.
+2. **No prebuilt binary for your platform.** npm then builds llama.cpp from source, which
+   needs `cmake` and a C++ toolchain. On Windows that means Visual Studio Build Tools with
+   the "Desktop development with C++" workload. Fetch a prebuilt binary instead with:
+
+   ```
+   npx --no-install node-llama-cpp source download
+   ```
+
+3. **A proxy or firewall blocks `registry.npmjs.org`.**
+4. **A stale lockfile or partial `node_modules`.** Clear it and retry:
+
+   ```
+   npm run clean
+   npm install
+   ```
+
+npm prints the real error *above* its own summary — read the first `ERR!` block, not the
+last line.
 
 ### Replies are slow
 

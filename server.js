@@ -30,7 +30,30 @@ import {
 
 const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
-const PORT = Number(process.env.PORT || 3000);
+/**
+ * Resolve a port from --port <n> / --port=<n> or the PORT variable.
+ * The flag exists because `PORT=8080 npm start` is bash-only syntax; `npm start -- --port 8080`
+ * works identically in PowerShell, cmd and every POSIX shell.
+ */
+function resolvePort() {
+    const args = process.argv.slice(2);
+
+    for (let i = 0; i < args.length; i += 1) {
+        const arg = args[i];
+        if (arg === "--port" || arg === "-p") {
+            const value = Number(args[i + 1]);
+            if (Number.isFinite(value) && value > 0) return value;
+        } else if (arg.startsWith("--port=")) {
+            const value = Number(arg.slice("--port=".length));
+            if (Number.isFinite(value) && value > 0) return value;
+        }
+    }
+
+    const fromEnv = Number(process.env.PORT);
+    return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 3000;
+}
+
+const PORT = resolvePort();
 const AUTO_LOAD = process.env.VOXELCHAT_AUTO_LOAD !== "false";
 
 const app = express();

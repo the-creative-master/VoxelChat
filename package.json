@@ -7,8 +7,10 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test test/*.test.mjs",
-    "doctor": "node scripts/doctor.js"
+    "test": "node --test",
+    "doctor": "node scripts/doctor.js",
+    "fetch": "node scripts/fetch-model.js",
+    "clean": "node scripts/clean.js"
   },
   "engines": {
     "node": ">=20.0.0"

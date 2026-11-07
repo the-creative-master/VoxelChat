@@ -144,7 +144,7 @@ async function checkHost(url, label, hint) {
     }
 }
 
-await checkHost("https://huggingface.co", "Hugging Face", "The model download will fail. Download the GGUF manually (see README).");
+await checkHost("https://huggingface.co", "Hugging Face", "The download will fail. Try `npm run fetch`, or save the .gguf into the cache dir yourself.");
 
 /* --------------------------------- models --------------------------------- */
 
@@ -165,7 +165,7 @@ if (fs.existsSync(cacheDir)) {
     const partial = files.filter(name => name.endsWith(".partial"));
     const sizeMb = gguf.reduce((sum, name) => sum + fs.statSync(path.join(cacheDir, name)).size / 1024 ** 2, 0);
 
-    record("Model cache", gguf.length > 0, gguf.length > 0 ? `${gguf.join(", ")} (${sizeMb.toFixed(0)} MB)` : "empty", gguf.length > 0 ? null : "The default model downloads into the cache once, on first run.");
+    record("Model cache", gguf.length > 0, gguf.length > 0 ? `${gguf.join(", ")} (${sizeMb.toFixed(0)} MB)` : "empty", gguf.length > 0 ? null : "The default model is cached once on first run, or now with: npm run fetch");
 
     record("No half-finished downloads", partial.length === 0, partial.length === 0 ? "none" : `${partial.join(", ")}`, partial.length === 0 ? null : "A partial download was interrupted; it will be retried automatically.");
 } else {
