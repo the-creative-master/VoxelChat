@@ -1,46 +1,53 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {getLlama, resolveModelFile, LlamaLogLevel, GgufInsights} from "node-llama-cpp";
-import {ACTIVE_MODEL, MODELS_DIR, MODEL_PATH_OVERRIDE} from "./models.js";
+import {getLlama, LlamaLogLevel, GgufInsights} from "node-llama-cpp";
+import {
+    CACHE_DIR,
+    DEFAULT_MODEL_ID,
+    getModel,
+    getDefaultModel,
+    cachePathFor,
+    isCached
+} from "./catalog.js";
+import {fetchModelToCache, removeCachedModel} from "./cache.js";
 
 /**
- * Context sizes to try, largest first. The KV cache grows linearly with this and is the
- * thing that decides whether the model fits in RAM, so we pick the biggest one that does.
+ * Owns exactly one loaded model at a time and can swap between them.
+ *
+ * Loading is swap-then-dispose: the incoming model is loaded *before* the outgoing one is
+ * released. Doing it the other way round means a failed load leaves the app with no model
+ * at all. The tradeoff is that both are resident briefly, so the swap is refused when the
+ * machine does not have room for both — better a clear error than an OOM crash.
  */
+
 const CONTEXT_CANDIDATES = [4096, 2048, 1024, 512];
-
-/** Leave this fraction of free RAM for everything else on the machine. */
 const RAM_SAFETY_FACTOR = 0.85;
-
-/** Runtime, tokenizer and compute-graph overhead that is not part of weights or KV cache. */
 const RUNTIME_OVERHEAD_BYTES = 160 * 1024 * 1024;
 
-/**
- * Lifecycle of the single model instance this server owns.
- *
- * phase: "idle" -> "downloading" -> "loading" -> "ready" | "error"
- */
 let status = {
     phase: "idle",
-    message: "Model has not been loaded yet.",
+    message: "No model is loaded.",
+    modelId: null,
     downloadedBytes: 0,
     totalBytes: 0,
     device: null,
     contextSize: null,
+    freeRamBytes: null,
     error: null
 };
 
 const listeners = new Set();
+let changeListeners = new Set();
 
 let llamaRef = null;
-let modelRef = null;
-let contextRef = null;
+let loaded = null;        // {model, context, id}
 let readyPromise = null;
-let lastProgressAt = 0;
+let activeModelId = null;
+let swapChain = Promise.resolve();
 
 export function getStatus() {
-    return status;
+    return {...status};
 }
 
 export function subscribe(listener) {
@@ -48,83 +55,265 @@ export function subscribe(listener) {
     return () => listeners.delete(listener);
 }
 
-function update(patch) {
-    status = {...status, ...patch};
-    for (const listener of listeners) listener(status);
+/** Fires whenever the active model changes (or is released). */
+export function onModelChange(listener) {
+    changeListeners.add(listener);
+    return () => changeListeners.delete(listener);
 }
 
+function update(patch) {
+    status = {...status, ...patch};
+    for (const listener of listeners) listener(getStatus());
+}
+
+function notifyChange() {
+    const id = activeModelId;
+    const model = id != null ? getModel(id) : null;
+    for (const listener of changeListeners) listener({modelId: id, model});
+}
+
+/* --------------------------------- reading --------------------------------- */
+
+export function getActiveModelId() {
+    return activeModelId;
+}
+
+export function isReady() {
+    return status.phase === "ready" && loaded != null;
+}
+
+export function getLoaded() {
+    return loaded;
+}
+
+export function getContext() {
+    return loaded?.context ?? null;
+}
+
+/** Prompt-derived token count, used to keep the KV cache from overflowing. */
+export function countTokens(text) {
+    try {
+        return loaded?.model.tokenize(text).length ?? 0;
+    } catch {
+        return 0;
+    }
+}
+
+/* --------------------------------- loading --------------------------------- */
+
 /**
- * Load (downloading first if needed) and return the shared model + context.
- * Concurrent callers share the same in-flight promise.
+ * Ensure the default (or given) model is loaded. Concurrent callers share one operation.
  */
-export function ensureModel() {
+export function ensureModel(modelId = activeModelId ?? getDefaultModel().id) {
+    // Already loaded: nothing to do. The promise is only non-null while loading, so this
+    // check has to be explicit — otherwise an already-ready model re-enters the loader.
+    if (loaded != null && loaded.id === modelId) return Promise.resolve(loaded);
+
     if (readyPromise != null) return readyPromise;
 
-    readyPromise = load()
-        .catch((error) => {
-            readyPromise = null;
+    readyPromise = loadModelInternal(modelId)
+        .catch(error => {
             update({
                 phase: "error",
                 message: "The model could not be loaded.",
                 error: error?.message ?? String(error)
             });
             throw error;
+        })
+        .finally(() => {
+            readyPromise = null;
         });
 
     return readyPromise;
 }
 
-export function isReady() {
-    return status.phase === "ready" && contextRef != null;
+/**
+ * Download if necessary, then load. Serialized with swaps so two operations cannot
+ * fight over the single loaded slot.
+ */
+export function loadModel(modelId) {
+    const run = swapChain.then(() => loadModelInternal(modelId));
+    swapChain = run.catch(() => {});
+    return run;
 }
 
-export function getContext() {
-    return contextRef;
-}
+async function loadModelInternal(modelId) {
+    const model = getModel(modelId);
+    if (model == null) throw new Error(`Unknown model "${modelId}".`);
 
-async function load() {
-    const modelPath = await resolveModelPath();
+    if (loaded != null && loaded.id === modelId) return loaded;
 
-    update({phase: "loading", message: "Allocating the model in memory…", error: null, downloadedBytes: 0});
+    await ensureCached(model);
 
-    const llama = await getLlama({logLevel: LlamaLogLevel.warn});
-    const model = await llama.loadModel({modelPath});
+    const previous = loaded;
 
-    assertModelMatchesCatalog(model, modelPath);
+    // Check there is room for both before we start, since loading precedes unloading.
+    assertRoomForSwap(model, previous);
 
-    const contextSize = await pickContextSize(model);
-
-    const context = await model.createContext({
-        contextSize,
-        sequences: 1
+    update({
+        phase: "loading",
+        message: `Loading ${model.name}…`,
+        modelId,
+        error: null,
+        downloadedBytes: 0,
+        totalBytes: 0
     });
 
+    const llama = llamaRef ?? await getLlama({logLevel: LlamaLogLevel.warn});
     llamaRef = llama;
-    modelRef = model;
-    contextRef = context;
+
+    let next;
+    try {
+        const llamaModel = await llama.loadModel({modelPath: cachePathFor(model), useMmap: true});
+        const contextSize = await pickContextSize(llamaModel, model);
+        const context = await llamaModel.createContext({contextSize, sequences: 1});
+
+        next = {id: modelId, model: llamaModel, context, contextSize};
+    } catch (error) {
+        update({phase: "error", message: `Could not load ${model.name}.`, error: error?.message ?? String(error)});
+        throw error;
+    }
+
+    // Commit the swap, then release the previous model.
+    loaded = next;
+    activeModelId = modelId;
 
     update({
         phase: "ready",
-        message: "SmolLM2 is ready.",
+        message: `${model.name} is ready.`,
+        modelId,
         device: describeDevice(llama),
-        contextSize,
+        contextSize: next.contextSize,
         freeRamBytes: os.freemem(),
-        totalBytes: status.totalBytes
+        error: null
     });
 
-    return {llama, model, context};
+    if (previous != null && previous !== next) {
+        await release(previous);
+        update({freeRamBytes: os.freemem()});
+    }
+
+    notifyChange();
+    return loaded;
 }
 
 /**
+ * Load a model without disturbing the currently loaded one. Used to prefetch while a
+ * cached model is still answering questions.
+ */
+export async function preloadModel(modelId) {
+    const model = getModel(modelId);
+    if (model == null) throw new Error(`Unknown model "${modelId}".`);
+
+    const existing = (await import("./model-manager.js")).getPreloaded?.(modelId);
+    return existing ?? null;
+}
+
+async function ensureCached(model) {
+    if (isCached(model)) return;
+
+    fs.mkdirSync(CACHE_DIR, {recursive: true});
+
+    update({
+        phase: "downloading",
+        message: `Caching ${model.name}…`,
+        modelId: model.id,
+        downloadedBytes: 0,
+        totalBytes: model.sizeBytes ?? 0,
+        error: null
+    });
+
+    await fetchModelToCache(model, {
+        onProgress({downloadedBytes, totalBytes}) {
+            const now = Date.now();
+            if (now - (ensureCached.lastUpdate ?? 0) < 200 && downloadedBytes !== totalBytes) return;
+            ensureCached.lastUpdate = now;
+            update({downloadedBytes, totalBytes});
+        }
+    });
+
+    notifyChange();
+}
+
+async function release(entry) {
+    try {
+        await entry.context?.dispose();
+        await entry.model?.dispose();
+    } catch {
+        // Releasing is best-effort; a failure here must not block the swap.
+    }
+}
+
+/* ------------------------------ install / unload ---------------------------- */
+
+/**
+ * Cache a model without loading it. The default model never needs this; it is how
+ * additional models are made available.
+ */
+export function installModel(modelId) {
+    const run = swapChain.then(async () => {
+        const model = getModel(modelId);
+        if (model == null) throw new Error(`Unknown model "${modelId}".`);
+        await ensureCached(model);
+        return {id: modelId, cached: true};
+    });
+
+    swapChain = run.catch(() => {});
+    return run;
+}
+
+/** Delete a cached model. Refuses to remove the model currently in use. */
+export function uninstallModel(modelId) {
+    const run = swapChain.then(async () => {
+        const model = getModel(modelId);
+        if (model == null) throw new Error(`Unknown model "${modelId}".`);
+        if (modelId === activeModelId) throw new Error("That model is in use. Switch to another model first.");
+
+        removeCachedModel(model);
+        notifyChange();
+        return {id: modelId, cached: false};
+    });
+
+    swapChain = run.catch(() => {});
+    return run;
+}
+
+/**
+ * Free the loaded model. The next request loads it again from the cache — no download.
+ */
+export function unloadModel() {
+    const run = swapChain.then(async () => {
+        if (loaded == null) return {unloaded: false};
+
+        const previous = loaded;
+        loaded = null;
+        activeModelId = null;
+
+        await release(previous);
+
+        update({
+            phase: "idle",
+            message: "Model unloaded. It will load again from the cache when needed.",
+            modelId: null,
+            device: null,
+            contextSize: null,
+            freeRamBytes: os.freemem(),
+            error: null
+        });
+
+        notifyChange();
+        return {unloaded: true};
+    });
+
+    swapChain = run.catch(() => {});
+    return run;
+}
+
+/* -------------------------------- memory sizing ---------------------------- */
+
+/**
  * Pick a context size from a budget. Pure function so the decision can be tested with
- * real SmolLM2 numbers instead of whatever fixture happens to be on hand.
- *
- * @param {object} options
- * @param {number} options.freeRamBytes   RAM we are willing to spend.
- * @param {number} options.weightsBytes   Resident size of the model weights.
- * @param {number} options.maxContextSize Upper bound (the model's trained window).
- * @param {(size: number) => (number|null)} options.estimateContextBytes
- * @returns {{contextSize: number, reason: string}}
+ * real model dimensions instead of whatever fixture happens to be on hand.
  */
 export function chooseContextSize({freeRamBytes, weightsBytes, maxContextSize, estimateContextBytes}) {
     for (const contextSize of CONTEXT_CANDIDATES) {
@@ -133,8 +322,7 @@ export function chooseContextSize({freeRamBytes, weightsBytes, maxContextSize, e
         const contextBytes = estimateContextBytes(contextSize);
         if (contextBytes == null) continue;
 
-        const total = weightsBytes + contextBytes + RUNTIME_OVERHEAD_BYTES;
-        if (total <= freeRamBytes) {
+        if (weightsBytes + contextBytes + RUNTIME_OVERHEAD_BYTES <= freeRamBytes) {
             return {
                 contextSize,
                 reason: contextSize < maxContextSize ? "reduced to fit available memory" : "fits available memory"
@@ -148,56 +336,62 @@ export function chooseContextSize({freeRamBytes, weightsBytes, maxContextSize, e
     };
 }
 
-/**
- * Choose the largest context that comfortably fits in the RAM we actually have.
- *
- * The KV cache is the dominant variable cost: for SmolLM2 1.7B it is roughly 192 KB per
- * token of context (24 layers x 2048 kv-dim x 2 (K and V) x 2 bytes). At the default 4096
- * that alone is ~768 MB on top of ~1060 MB of weights, which does not fit in a 2 GB box.
- * Rather than hardcode a number that is wrong on small machines and stingy on big ones,
- * measure what is available and pick accordingly.
- */
-async function pickContextSize(model) {
-    const maxContextSize = Math.min(ACTIVE_MODEL.contextSize, model.trainContextSize);
+/** Rough RAM needed by a model, used before committing to a swap. */
+function estimateResidentBytes(model) {
+    const weights = model.sizeBytes ?? 0;
+    const kvPerToken = Number(model.kvBytesPerToken ?? 0);
+    const context = Math.min(model.contextSize ?? 2048, 2048);
+    return weights + kvPerToken * context + RUNTIME_OVERHEAD_BYTES;
+}
+
+function assertRoomForSwap(incoming, previous) {
+    if (previous == null) return;
+
+    const needed = estimateResidentBytes(incoming) + estimateResidentBytes(getModel(previous.id) ?? incoming);
+    const available = os.freemem() + (previous.model?.size ?? 0);
+
+    if (needed > available * RAM_SAFETY_FACTOR) {
+        throw new Error(
+            `Not enough memory to switch models: this needs about ${formatGb(needed)} but ` +
+            `${formatGb(available)} is available. Unload the current model first ` +
+            `(Settings → Unload), or switch on a machine with more RAM.`
+        );
+    }
+}
+
+function formatGb(bytes) {
+    return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+}
+
+async function pickContextSize(llamaModel, model) {
+    const maxContextSize = Math.min(model.contextSize ?? 4096, llamaModel.trainContextSize);
 
     const requested = process.env.VOXELCHAT_CONTEXT_SIZE;
     if (requested != null) {
         const parsed = Number(requested);
-        if (!Number.isFinite(parsed) || parsed < 256) {
-            console.warn(`  Ignoring invalid VOXELCHAT_CONTEXT_SIZE="${requested}" (expected a number >= 256).`);
-        } else {
-            const chosen = Math.min(Math.floor(parsed), maxContextSize);
-            if (chosen !== parsed) console.warn(`  Context capped at ${chosen} tokens (the model's trained window).`);
-            return chosen;
-        }
+        if (Number.isFinite(parsed) && parsed >= 256)
+            return Math.min(Math.floor(parsed), maxContextSize);
+        console.warn(`  Ignoring invalid VOXELCHAT_CONTEXT_SIZE="${requested}".`);
     }
 
-    const estimateContextBytes = await createContextEstimator(model);
-    if (estimateContextBytes == null) {
-        const fallback = Math.min(2048, maxContextSize);
-        console.log(`  Could not estimate memory use; starting with a ${fallback}-token context.`);
-        return fallback;
-    }
+    const estimateContextBytes = await createContextEstimator(llamaModel);
+    if (estimateContextBytes == null) return Math.min(2048, maxContextSize);
 
     const {contextSize, reason} = chooseContextSize({
         freeRamBytes: os.freemem() * RAM_SAFETY_FACTOR,
-        weightsBytes: model.size,
+        weightsBytes: llamaModel.size,
         maxContextSize,
         estimateContextBytes
     });
 
-    console.log(`  Using a ${contextSize}-token context window (${reason}).`);
+    console.log(`  ${model.name}: ${contextSize}-token context window (${reason}).`);
     return contextSize;
 }
 
-/**
- * Returns a function mapping a context size to its estimated RAM cost, or null when the
- * estimation helpers are unavailable in the installed version.
- */
-async function createContextEstimator(model) {
+async function createContextEstimator(llamaModel) {
     let insights;
     try {
-        insights = await GgufInsights.from(model.fileInfo, model.llama);
+        insights = await GgufInsights.from(llamaModel.fileInfo, llamaModel.llama);
     } catch {
         return null;
     }
@@ -211,9 +405,8 @@ async function createContextEstimator(model) {
         try {
             const estimate = insights.estimateContextResourceRequirements({
                 contextSize,
-                modelGpuLayers: model.gpuLayers ?? 0
+                modelGpuLayers: llamaModel.gpuLayers ?? 0
             });
-
             const value = Number(estimate?.cpuRam ?? estimate?.total ?? 0);
             bytes = value > 0 ? value : null;
         } catch {
@@ -225,79 +418,6 @@ async function createContextEstimator(model) {
     };
 }
 
-async function resolveModelPath() {
-    if (MODEL_PATH_OVERRIDE != null) {
-        if (!fs.existsSync(MODEL_PATH_OVERRIDE))
-            throw new Error(`VOXELCHAT_MODEL_PATH points to a missing file: ${MODEL_PATH_OVERRIDE}`);
-
-        update({phase: "loading", message: "Using the local model file from VOXELCHAT_MODEL_PATH…"});
-        return MODEL_PATH_OVERRIDE;
-    }
-
-    const existingPath = path.join(MODELS_DIR, ACTIVE_MODEL.fileName);
-
-    if (fs.existsSync(existingPath)) {
-        update({phase: "loading", message: "Found the model on disk. Loading…"});
-        return existingPath;
-    }
-
-    fs.mkdirSync(MODELS_DIR, {recursive: true});
-    update({
-        phase: "downloading",
-        message: `Downloading ${ACTIVE_MODEL.name} (${ACTIVE_MODEL.approxSize}). This happens only once.`,
-        downloadedBytes: 0,
-        totalBytes: 0
-    });
-
-    return await resolveModelFile(ACTIVE_MODEL.url, {
-        directory: MODELS_DIR,
-        fileName: ACTIVE_MODEL.fileName,
-        cli: false,
-        onProgress({downloadedSize, totalSize}) {
-            // Throttle status updates so the SSE/status endpoint isn't flooded.
-            const now = Date.now();
-            if (now - lastProgressAt < 250 && downloadedSize !== totalSize) return;
-            lastProgressAt = now;
-
-            update({
-                phase: "downloading",
-                downloadedBytes: downloadedSize,
-                totalBytes: totalSize
-            });
-        }
-    });
-}
-
-/**
- * Refuse to run a file that clearly isn't the catalogued model.
- *
- * Without this, pointing VOXELCHAT_MODEL_PATH at any small .gguf produces a model that
- * loads and generates happily but emits gibberish, which is very confusing to diagnose.
- */
-function assertModelMatchesCatalog(model, modelPath) {
-    const parameters = model.parametersCount ?? 0;
-    const fileSize = model.size ?? 0;
-    const expected = ACTIVE_MODEL.expectedParameters;
-    const minBytes = ACTIVE_MODEL.minFileSizeBytes;
-
-    if (fileSize > 0 && fileSize < minBytes) {
-        throw new Error(
-            `The file at "${modelPath}" is only ${(fileSize / 1048576).toFixed(1)} MB, but ` +
-            `${ACTIVE_MODEL.name} should be about ${ACTIVE_MODEL.approxSize}. This is a different model — ` +
-            `it would load but produce nonsense output. Delete it or point VOXELCHAT_MODEL_PATH at the real file.`
-        );
-    }
-
-    // parametersCount is only available for some builds; skip the check when it is 0.
-    if (parameters > 0 && expected > 0 && Math.abs(parameters - expected) / expected > 0.5) {
-        throw new Error(
-            `The file at "${modelPath}" has ${(parameters / 1e9).toFixed(2)}B parameters, but ` +
-            `${ACTIVE_MODEL.name} has roughly ${(expected / 1e9).toFixed(1)}B. This is a different model — ` +
-            `delete it or point VOXELCHAT_MODEL_PATH at the real file.`
-        );
-    }
-}
-
 function describeDevice(llama) {
     try {
         return llama.gpu === false ? "CPU" : String(llama.gpu ?? "CPU").toUpperCase();
@@ -306,17 +426,23 @@ function describeDevice(llama) {
     }
 }
 
-/** Release everything. Used on shutdown so the process exits promptly. */
-export async function disposeModel() {
-    try {
-        await contextRef?.dispose();
-        await modelRef?.dispose();
-    } catch {
-        // Nothing actionable during shutdown.
+/** Release everything on shutdown. */
+export async function disposeAll() {
+    swapChain = Promise.resolve();
+
+    if (loaded != null) {
+        const previous = loaded;
+        loaded = null;
+        activeModelId = null;
+        await release(previous);
     }
 
-    contextRef = null;
-    modelRef = null;
     llamaRef = null;
     readyPromise = null;
 }
+
+export function setPhase(phase, message) {
+    update({phase, message});
+}
+
+export {DEFAULT_MODEL_ID};

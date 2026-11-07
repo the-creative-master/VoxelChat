@@ -38,6 +38,10 @@ const els = {
   specQuant: document.getElementById("specQuant"),
   specContext: document.getElementById("specContext"),
   specDevice: document.getElementById("specDevice"),
+  specActive: document.getElementById("specActive"),
+  modelList: document.getElementById("modelList"),
+  cacheUsage: document.getElementById("cacheUsage"),
+  unloadModel: document.getElementById("unloadModel"),
   specMemory: document.getElementById("specMemory"),
   toast: document.getElementById("toast")
 };
@@ -50,7 +54,9 @@ const state = {
   systemPrompt: "",
   defaultSystemPrompt: "",
   model: null,
-  loaded: false,
+  models: [],
+  activeModelId: null,
+  cacheLabel: "",
   aborter: null,
   streaming: false
 };
@@ -299,16 +305,30 @@ function statusOf() {
 }
 
 function applyStatus(payload) {
-  if (payload?.model) {
-    state.model = payload.model;
-    const {name, parameters, quantization, approxSize, contextSize} = payload.model;
-    els.modelName.textContent = name;
-    els.modelMeta.textContent = `${quantization} · ${approxSize} · local`;
-    els.specName.textContent = name;
-    els.specParams.textContent = parameters;
-    els.specQuant.textContent = quantization;
-    els.specContext.textContent = `${contextSize} tokens`;
+  if (Array.isArray(payload?.models)) {
+    state.models = payload.models;
+    state.activeModelId = payload.activeModelId ?? null;
+    renderModels();
   }
+
+  // The side bar shows the model that is actually loaded, not just the catalog default.
+  const active = state.models.find(model => model.id === state.activeModelId)
+    ?? state.models.find(model => model.isDefault)
+    ?? state.models[0];
+
+  if (active) {
+    state.model = active;
+    els.modelName.textContent = active.name;
+    els.modelMeta.textContent = [active.quantization, active.approxSize, "local"].filter(Boolean).join(" · ");
+    els.specName.textContent = active.name;
+    els.specParams.textContent = active.parameters ?? "—";
+    els.specQuant.textContent = active.quantization ?? "—";
+    els.specContext.textContent = `${active.contextSize} tokens`;
+  }
+
+  els.specActive.textContent = state.activeModelId != null && !statusOf().phase.match(/idle|error/)
+    ? "yes"
+    : "no";
 
   if (payload?.status) state.status = payload.status;
 
@@ -352,6 +372,195 @@ function applyStatus(payload) {
   if (Number.isFinite(status.freeRamBytes) && status.freeRamBytes > 0)
     els.specMemory.textContent = formatBytes(status.freeRamBytes);
   if (!activeConversation()?.messages.length) renderWelcomeNote();
+}
+
+/**
+ * Render the cached/available model list with per-model actions.
+ * Cached models can be switched to instantly; uncached ones are downloaded into the cache.
+ */
+function renderModels() {
+  if (!els.modelList) return;
+
+  els.modelList.replaceChildren();
+
+  for (const model of state.models) {
+    const row = document.createElement("div");
+    row.className = "model-row";
+    if (model.id === state.activeModelId) row.classList.add("is-active");
+
+    const info = document.createElement("div");
+    info.className = "model-row-info";
+
+    const title = document.createElement("div");
+    title.className = "model-row-title";
+    title.textContent = model.name;
+    if (model.isDefault) {
+      const badge = document.createElement("span");
+      badge.className = "model-badge";
+      badge.textContent = "DEFAULT";
+      title.append(badge);
+    }
+
+    const meta = document.createElement("div");
+    meta.className = "model-row-meta";
+    const parts = [model.quantization, model.approxSize].filter(Boolean);
+    parts.push(model.cached ? "cached" : "not cached");
+    meta.textContent = parts.join(" · ");
+
+    info.append(title, meta);
+
+    const actions = document.createElement("div");
+    actions.className = "model-row-actions";
+
+    const isActive = model.id === state.activeModelId;
+    const busy = state.switchingModelId != null;
+    const phase = statusOf().phase;
+    const working = phase === "downloading" || phase === "loading";
+
+    if (!model.cached) {
+      const installBtn = document.createElement("button");
+      installBtn.type = "button";
+      installBtn.className = "ghost-btn small";
+      installBtn.textContent = "Cache it";
+      installBtn.disabled = busy || working;
+      installBtn.title = "Download into the cache without loading it";
+      installBtn.addEventListener("click", () => installModelFile(model));
+      actions.append(installBtn);
+    } else if (isActive) {
+      const unloadBtn = document.createElement("button");
+      unloadBtn.type = "button";
+      unloadBtn.className = "ghost-btn small";
+      unloadBtn.textContent = "In use";
+      unloadBtn.disabled = true;
+      actions.append(unloadBtn);
+    } else {
+      const switchBtn = document.createElement("button");
+      switchBtn.type = "button";
+      switchBtn.className = "primary-btn small";
+      switchBtn.textContent = state.switchingModelId === model.id ? "Switching…" : "Switch";
+      switchBtn.disabled = busy || working;
+      switchBtn.addEventListener("click", () => switchModel(model));
+      actions.append(switchBtn);
+
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "danger-btn small";
+      removeBtn.textContent = "Remove";
+      removeBtn.title = "Delete this file from the cache";
+      removeBtn.disabled = busy || working;
+      removeBtn.addEventListener("click", () => removeModelFile(model));
+      actions.append(removeBtn);
+    }
+
+    row.append(info, actions);
+    els.modelList.append(row);
+  }
+
+  if (els.cacheUsage) {
+    const cachedCount = state.models.filter(model => model.cached).length;
+    els.cacheUsage.textContent = `${cachedCount} of ${state.models.length} model${state.models.length === 1 ? "" : "s"} cached.`;
+  }
+}
+
+async function switchModel(model) {
+  if (state.streaming) return toast("Stop the current response first.");
+
+  state.switchingModelId = model.id;
+  renderModels();
+  toast(`Switching to ${model.name}…`);
+
+  try {
+    const response = await fetch("/api/models/switch", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({id: model.id})
+    });
+    const data = await response.json();
+
+    if (!response.ok) throw new Error(data.error || "Could not switch models.");
+
+    state.activeModelId = data.activeModelId ?? model.id;
+    toast(`Now using ${model.name}.`);
+    await refreshModels();
+  } catch (error) {
+    // The previous model is still loaded, so this is informational rather than fatal.
+    toast(error.message);
+  } finally {
+    state.switchingModelId = null;
+    renderModels();
+  }
+}
+
+async function installModelFile(model) {
+  state.switchingModelId = model.id;
+  renderModels();
+  toast(`Caching ${model.name}…`);
+
+  try {
+    const response = await fetch("/api/models/install", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({id: model.id})
+    });
+    const data = await response.json();
+
+    if (!response.ok) throw new Error(data.error || "Could not cache that model.");
+
+    toast(`${model.name} is cached.`);
+    await refreshModels();
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    state.switchingModelId = null;
+    renderModels();
+  }
+}
+
+async function removeModelFile(model) {
+  if (!confirm(`Delete ${model.name} from the cache? It will need downloading again.`)) return;
+
+  try {
+    const response = await fetch("/api/models/uninstall", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({id: model.id})
+    });
+    const data = await response.json();
+
+    if (!response.ok) throw new Error(data.error || "Could not remove that model.");
+
+    toast(`${model.name} removed from the cache.`);
+    await refreshModels();
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function unloadLoadedModel() {
+  if (state.streaming) return toast("Stop the current response first.");
+
+  try {
+    const response = await fetch("/api/models/unload", {method: "POST"});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Could not unload the model.");
+
+    toast(data.unloaded ? "Model unloaded. It will reload from the cache on your next message." : "Nothing was loaded.");
+    await refreshModels();
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function refreshModels() {
+  try {
+    const response = await fetch("/api/models");
+    const data = await response.json();
+    state.models = data.models ?? [];
+    state.activeModelId = data.activeModelId ?? null;
+    renderModels();
+  } catch {
+    /* Leave the current list in place. */
+  }
 }
 
 function connectStatusStream() {
@@ -615,6 +824,7 @@ function saveSettings() {
 
 document.getElementById("saveSettings").addEventListener("click", saveSettings);
 document.getElementById("closeSettings").addEventListener("click", () => els.settingsDialog.close());
+els.unloadModel.addEventListener("click", unloadLoadedModel);
 
 els.clearAll.addEventListener("click", () => {
   if (!confirm("Delete every conversation? This cannot be undone.")) return;

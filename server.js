@@ -3,22 +3,30 @@ import {fileURLToPath} from "node:url";
 import express from "express";
 import {
     ensureModel,
+    loadModel,
+    installModel,
+    uninstallModel,
+    unloadModel,
     getStatus,
-    subscribe,
+    getActiveModelId,
     isReady,
-    disposeModel
+    subscribe,
+    onModelChange,
+    disposeAll
 } from "./src/model-manager.js";
+import {MODELS, DEFAULT_MODEL_ID, getModel, toPublicModel, formatBytes} from "./src/catalog.js";
+import {cacheUsageBytes} from "./src/cache.js";
 import {
     generateReply,
     normalizeMessages,
     normalizeSystemPrompt,
     isGenerating,
+    abortActiveGeneration,
     waitForIdle,
     ChatBusyError,
     ChatValidationError,
     DEFAULT_SYSTEM_PROMPT
 } from "./src/chat.js";
-import {getModelInfo, ACTIVE_MODEL} from "./src/models.js";
 
 const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
@@ -27,22 +35,39 @@ const AUTO_LOAD = process.env.VOXELCHAT_AUTO_LOAD !== "false";
 
 const app = express();
 app.use(express.json({limit: "1mb"}));
-
-/**
- * Handle for the generation currently in flight, so a stop request can abort it
- * without waiting for the client connection to be noticed as closed.
- * @type {{abort: () => void} | null}
- */
-let activeGeneration = null;
 app.use(express.static(PUBLIC_DIR));
 
-/* ---------------------------------- status --------------------------------- */
+/** Handle for the generation currently in flight. */
+let activeGeneration = null;
 
-app.get("/api/status", (req, res) => {
-    res.json({model: getModelInfo(), status: getStatus(), generating: isGenerating()});
+/* ---------------------------------- models --------------------------------- */
+
+function modelList() {
+    const activeId = getActiveModelId();
+    return MODELS.map(model => toPublicModel(model, {active: model.id === activeId}));
+}
+
+app.get("/api/models", (req, res) => {
+    res.json({
+        models: modelList(),
+        defaultModelId: DEFAULT_MODEL_ID,
+        activeModelId: getActiveModelId(),
+        cacheBytes: cacheUsageBytes(),
+        cacheBytesLabel: formatBytes(cacheUsageBytes())
+    });
 });
 
-/** Server-sent events feed so the UI can show download/load progress live. */
+app.get("/api/status", (req, res) => {
+    res.json({
+        models: modelList(),
+        defaultModelId: DEFAULT_MODEL_ID,
+        activeModelId: getActiveModelId(),
+        status: getStatus(),
+        generating: isGenerating()
+    });
+});
+
+/** Live feed of download/load/swap progress. */
 app.get("/api/status/stream", (req, res) => {
     res.writeHead(200, {
         "Content-Type": "text/event-stream",
@@ -51,25 +76,96 @@ app.get("/api/status/stream", (req, res) => {
         "X-Accel-Buffering": "no"
     });
 
-    const send = payload => res.write(`data: ${JSON.stringify(payload)}\n\n`);
-    send({model: getModelInfo(), status: getStatus()});
+    const payload = () => ({
+        models: modelList(),
+        activeModelId: getActiveModelId(),
+        status: getStatus()
+    });
 
-    const unsubscribe = subscribe(status => send({model: getModelInfo(), status}));
+    const send = data => res.write(`data: ${JSON.stringify(data)}\n\n`);
+    send(payload());
+
+    const unsubscribeStatus = subscribe(() => send(payload()));
+    const unsubscribeChange = onModelChange(() => send(payload()));
     const heartbeat = setInterval(() => res.write(": ping\n\n"), 15000);
 
     req.on("close", () => {
         clearInterval(heartbeat);
-        unsubscribe();
+        unsubscribeStatus();
+        unsubscribeChange();
     });
 });
 
-/** Kick off loading manually (the server also does this on boot by default). */
+/**
+ * Switch models. The incoming model is loaded before the outgoing one is released, so a
+ * failed switch leaves the previous model in place rather than nothing at all.
+ */
+app.post("/api/models/switch", async (req, res) => {
+    const id = req.body?.id;
+    if (typeof id !== "string" || getModel(id) == null)
+        return res.status(400).json({error: "Unknown model id."});
+
+    try {
+        // Stop answering before the context is replaced underneath us.
+        activeGeneration?.abort();
+        abortActiveGeneration();
+        await waitForIdle({timeoutMs: 5000});
+
+        await loadModel(id);
+        res.json({ok: true, activeModelId: getActiveModelId(), status: getStatus()});
+    } catch (error) {
+        res.status(500).json({error: error?.message ?? String(error)});
+    }
+});
+
+/** Cache a model's file without loading it. */
+app.post("/api/models/install", async (req, res) => {
+    const id = req.body?.id;
+    if (typeof id !== "string" || getModel(id) == null)
+        return res.status(400).json({error: "Unknown model id."});
+
+    try {
+        await installModel(id);
+        res.json({ok: true, models: modelList()});
+    } catch (error) {
+        res.status(500).json({error: error?.message ?? String(error)});
+    }
+});
+
+/** Delete a cached model file. Refuses while it is loaded. */
+app.post("/api/models/uninstall", async (req, res) => {
+    const id = req.body?.id;
+    if (typeof id !== "string" || getModel(id) == null)
+        return res.status(400).json({error: "Unknown model id."});
+
+    try {
+        await uninstallModel(id);
+        res.json({ok: true, models: modelList(), cacheBytesLabel: formatBytes(cacheUsageBytes())});
+    } catch (error) {
+        res.status(409).json({error: error?.message ?? String(error)});
+    }
+});
+
+/** Release the loaded model from RAM. The next message reloads it from the cache. */
+app.post("/api/models/unload", async (req, res) => {
+    try {
+        activeGeneration?.abort();
+        abortActiveGeneration();
+        await waitForIdle({timeoutMs: 5000});
+
+        const result = await unloadModel();
+        res.json({ok: true, ...result, status: getStatus()});
+    } catch (error) {
+        res.status(500).json({error: error?.message ?? String(error)});
+    }
+});
+
+/** Kick off loading without blocking. */
 app.post("/api/model/load", (req, res) => {
-    if (isReady())
-        return res.json({ok: true, status: getStatus()});
+    if (isReady()) return res.json({ok: true, status: getStatus()});
 
     ensureModel().catch(() => {
-        // The failure is already reflected in the shared status object.
+        // Failure is already reflected in the shared status.
     });
 
     res.status(202).json({ok: true, status: getStatus()});
@@ -91,8 +187,8 @@ app.post("/api/chat", async (req, res) => {
     }
 
     if (!isReady()) {
-        // Make the browser wait for a pending download instead of failing outright.
-        if (getStatus().phase === "downloading" || getStatus().phase === "loading" || getStatus().phase === "idle")
+        const phase = getStatus().phase;
+        if (phase === "idle" || phase === "downloading" || phase === "loading")
             ensureModel().catch(() => {});
     }
 
@@ -118,19 +214,12 @@ app.post("/api/chat", async (req, res) => {
     const abort = () => abortController.abort();
     let clientGone = false;
 
-    // Halt generation when the browser disconnects.
-    // `res` is used rather than `req`: with Express, `req`'s "close" can fire once the
-    // request body has been read, which would abort generation immediately.
     res.on("close", () => {
         clientGone = true;
         if (!res.writableEnded) abort();
     });
 
-    // Also halt it on an explicit POST /api/chat/stop. Stopping must not rely solely on
-    // noticing a dropped connection, because that is unreliable across proxies, and a
-    // request that is never read to completion can keep generating server-side.
     activeGeneration = {abort};
-
     const startedAt = Date.now();
 
     try {
@@ -154,8 +243,9 @@ app.post("/api/chat", async (req, res) => {
     } catch (error) {
         if (!clientGone) {
             const isBusy = error instanceof ChatBusyError;
+            const isValidation = error instanceof ChatValidationError;
             send("error", {
-                error: isBusy ? error.message : "Generation failed.",
+                error: isBusy || isValidation ? error.message : "Generation failed.",
                 details: error?.message ?? String(error)
             });
         }
@@ -165,41 +255,44 @@ app.post("/api/chat", async (req, res) => {
     }
 });
 
-/** Stop whatever is currently generating, if anything. Safe to call when idle. */
+/** Stop whatever is currently generating. Safe to call when idle. */
 app.post("/api/chat/stop", (req, res) => {
     const wasGenerating = activeGeneration != null;
     activeGeneration?.abort();
+    abortActiveGeneration();
     res.json({stopped: wasGenerating});
 });
 
-/* --------------------------------- download -------------------------------- */
-
-/** Direct download of the GGUF file, for people who would rather not use the built-in downloader. */
-app.get("/api/model/download", (req, res) => {
-    res.redirect(302, ACTIVE_MODEL.url);
-});
+/* --------------------------------- misc ------------------------------------ */
 
 app.get("/api/system-prompt", (req, res) => {
     res.json({systemPrompt: DEFAULT_SYSTEM_PROMPT});
+});
+
+/** Direct download link, for people who would rather fetch the file themselves. */
+app.get("/api/models/:id/download", (req, res) => {
+    const model = getModel(req.params.id);
+    if (model == null) return res.status(404).json({error: "Unknown model id."});
+    res.redirect(302, model.url);
 });
 
 app.get("*", (req, res) => {
     res.sendFile(path.join(PUBLIC_DIR, "index.html"));
 });
 
-/* --------------------------------- lifecycle ------------------------------- */
+/* -------------------------------- lifecycle -------------------------------- */
 
 const server = app.listen(PORT, () => {
     console.log("");
     console.log(`  VoxelChat  →  http://localhost:${PORT}`);
-    console.log(`  Model      →  ${ACTIVE_MODEL.name} (${ACTIVE_MODEL.quantization})`);
+
+    const defaultModel = getModel(DEFAULT_MODEL_ID);
+    console.log(`  Model      →  ${defaultModel?.name ?? DEFAULT_MODEL_ID} (${defaultModel?.quantization ?? "?"})`);
     console.log("");
 
     if (AUTO_LOAD) {
-        console.log("  Loading SmolLM2… the first run downloads about 1.06 GB.");
         ensureModel().catch(error => {
-            console.error(`\n  Model failed to load: ${error?.message ?? error}`);
-            console.error("  Fix the problem above, then reload the page to retry.\n");
+            console.error(`\n  Model failed to load: ${error?.message ?? error}\n`);
         });
     } else {
         console.log("  VOXELCHAT_AUTO_LOAD=false — the model loads on your first message.");
@@ -211,11 +304,12 @@ async function shutdown(signal) {
 
     server.close();
 
-    // Stop any generation still in flight before the model is torn down. Disposing the
-    // context underneath a running generation surfaces as a confusing "Object is disposed".
+    // Stop generation before the model is torn down, otherwise it surfaces as
+    // "Object is disposed" mid-stream.
     activeGeneration?.abort();
+    abortActiveGeneration();
     await waitForIdle({timeoutMs: 3000});
-    await disposeModel();
+    await disposeAll();
     process.exit(0);
 }
 

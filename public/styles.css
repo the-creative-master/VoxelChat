@@ -904,3 +904,87 @@ code {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ------------------------------ model manager ---------------------------- */
+
+.model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.model-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.model-row.is-active {
+  border-color: var(--accent-dim);
+  background: var(--bg-input);
+}
+
+.model-row-info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.model-row-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.model-badge {
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  background: rgba(110, 231, 168, 0.1);
+  border: 1px solid var(--accent-dim);
+  border-radius: 99px;
+}
+
+.model-row-meta {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.model-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.ghost-btn.small,
+.primary-btn.small,
+.danger-btn.small {
+  padding: 5px 10px;
+  font-size: 11.5px;
+  border-radius: 7px;
+}
+
+.ghost-btn.small { width: auto; }
+
+.ghost-btn.small:disabled,
+.primary-btn.small:disabled,
+.danger-btn.small:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cache-usage {
+  margin: 0 0 4px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}

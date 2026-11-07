@@ -150,19 +150,26 @@ await checkHost("https://huggingface.co", "Hugging Face", "The model download wi
 
 section("Model");
 
-const modelsDir = path.join(ROOT, "models");
+const cacheDir = process.env.VOXELCHAT_CACHE_DIR || path.join(ROOT, "cache", "models");
 const fromEnv = process.env.VOXELCHAT_MODEL_PATH;
 
 if (fromEnv != null) {
     const exists = fs.existsSync(fromEnv);
     const sizeMb = exists ? fs.statSync(fromEnv).size / 1024 ** 2 : 0;
-    record("VOXELCHAT_MODEL_PATH", exists && sizeMb > 300, `${fromEnv} (${sizeMb.toFixed(0)} MB)`, exists ? null : "That file does not exist.");
-} else if (fs.existsSync(modelsDir)) {
-    const files = fs.readdirSync(modelsDir).filter(name => name.endsWith(".gguf"));
-    const sizeMb = files.reduce((sum, name) => sum + fs.statSync(path.join(modelsDir, name)).size / 1024 ** 2, 0);
-    record("Model file on disk", files.length > 0, files.length > 0 ? `${files.join(", ")} (${sizeMb.toFixed(0)} MB)` : "none yet", files.length > 0 ? null : "It downloads automatically on first run.");
+    record("VOXELCHAT_MODEL_PATH override", exists && sizeMb > 300, `${fromEnv} (${sizeMb.toFixed(0)} MB)`, exists ? null : "That file does not exist.");
+}
+
+if (fs.existsSync(cacheDir)) {
+    const files = fs.readdirSync(cacheDir).filter(name => name.endsWith(".gguf") || name.endsWith(".partial"));
+    const gguf = files.filter(name => name.endsWith(".gguf"));
+    const partial = files.filter(name => name.endsWith(".partial"));
+    const sizeMb = gguf.reduce((sum, name) => sum + fs.statSync(path.join(cacheDir, name)).size / 1024 ** 2, 0);
+
+    record("Model cache", gguf.length > 0, gguf.length > 0 ? `${gguf.join(", ")} (${sizeMb.toFixed(0)} MB)` : "empty", gguf.length > 0 ? null : "The default model downloads into the cache once, on first run.");
+
+    record("No half-finished downloads", partial.length === 0, partial.length === 0 ? "none" : `${partial.join(", ")}`, partial.length === 0 ? null : "A partial download was interrupted; it will be retried automatically.");
 } else {
-    record("Model file on disk", false, "models/ does not exist yet", "It is created on first run.");
+    record("Model cache", false, `${cacheDir} does not exist yet`, "It is created on first run.");
 }
 
 /* --------------------------------- report --------------------------------- */

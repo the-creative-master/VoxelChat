@@ -122,19 +122,30 @@
 
         <hr>
 
-        <h3 class="settings-subhead">Model</h3>
+        <h3 class="settings-subhead">Models</h3>
+        <p class="field-help">
+          Cached models are reused — no download. Switching loads the new model before
+          releasing the old one, so a failed switch leaves the current model running.
+        </p>
+        <div class="model-list" id="modelList"></div>
+        <p class="cache-usage" id="cacheUsage"></p>
+
+        <hr>
+
+        <h3 class="settings-subhead">This model</h3>
         <dl class="spec-list">
-          <div><dt>Name</dt><dd id="specName">SmolLM2 1.7B Instruct</dd></div>
-          <div><dt>Parameters</dt><dd id="specParams">1.7B</dd></div>
-          <div><dt>Quantization</dt><dd id="specQuant">Q4_K_M</dd></div>
-          <div><dt>Context window</dt><dd id="specContext">4096 tokens</dd></div>
+          <div><dt>Loaded</dt><dd id="specActive">—</dd></div>
+          <div><dt>Context window</dt><dd id="specContext">—</dd></div>
           <div><dt>Compute</dt><dd id="specDevice">—</dd></div>
           <div><dt>Free memory</dt><dd id="specMemory">—</dd></div>
         </dl>
+        <div class="field-row">
+          <button type="button" class="ghost-btn small" id="unloadModel">Unload from memory</button>
+        </div>
         <p class="field-help">
-          Only one model is supported for now. The GGUF file is stored in <code>models/</code> inside the project.
-          <a href="/api/model/download">Download it directly</a> if the built-in downloader fails.
+          Unloading frees the model's RAM. It reloads from the cache on your next message.
         </p>
+
       </div>
 
       <footer class="settings-foot">

@@ -1,5 +1,5 @@
 import {LlamaChatSession} from "node-llama-cpp";
-import {getContext, isReady} from "./model-manager.js";
+import {getContext, isReady, countTokens} from "./model-manager.js";
 
 export const DEFAULT_SYSTEM_PROMPT =
     "You are VoxelChat, a friendly and concise assistant running entirely on the user's own computer. " +
@@ -13,6 +13,16 @@ export class ChatBusyError extends Error {}
 export class ChatValidationError extends Error {}
 
 let generationInFlight = false;
+let activeAbort = null;
+
+/**
+ * Abort any generation in progress. Used before the loaded model is released, so a swap
+ * does not tear the context out from under a running prompt (which surfaces as a
+ * confusing "Object is disposed" error).
+ */
+export function abortActiveGeneration() {
+    activeAbort?.abort();
+}
 
 /**
  * Normalize and validate a browser-supplied message list.
@@ -90,9 +100,19 @@ export async function generateReply({messages, systemPrompt, signal, onTextChunk
 
     const prompt = messages[messages.length - 1];
     const priorMessages = messages.slice(0, -1);
+
+    assertFitsContext(systemPrompt, priorMessages, prompt.content);
+
     const session = createSession(systemPrompt, priorMessages);
 
     generationInFlight = true;
+    const internalAbort = new AbortController();
+    activeAbort = internalAbort;
+
+    // Honour either the caller's signal or our own internal abort.
+    const onCallerAbort = () => internalAbort.abort();
+    signal?.addEventListener("abort", onCallerAbort, {once: true});
+
     let fullText = "";
 
     try {
@@ -100,7 +120,7 @@ export async function generateReply({messages, systemPrompt, signal, onTextChunk
             maxTokens: MAX_TOKENS,
             temperature: 0.7,
             topP: 0.95,
-            signal,
+            signal: internalAbort.signal,
             stopOnAbortSignal: true,
             onTextChunk(chunk) {
                 fullText += chunk;
@@ -111,10 +131,29 @@ export async function generateReply({messages, systemPrompt, signal, onTextChunk
         });
 
         fullText = typeof response === "string" && response.length > 0 ? response : fullText;
-        return {text: fullText, stopReason: signal?.aborted ? "aborted" : "completed"};
+        return {text: fullText, stopReason: internalAbort.signal.aborted ? "aborted" : "completed"};
     } finally {
         generationInFlight = false;
+        activeAbort = null;
+        signal?.removeEventListener("abort", onCallerAbort);
         session.dispose();
+    }
+}
+
+/**
+ * Refuse a prompt that cannot fit the context window instead of letting the chat wrapper
+ * silently discard the beginning of the conversation.
+ */
+function assertFitsContext(systemPrompt, priorMessages, prompt) {
+    const total = [systemPrompt, ...priorMessages.map(message => message.content), prompt]
+        .reduce((sum, text) => sum + countTokens(String(text ?? "")), 0);
+
+    const context = getContext()?.contextSize ?? 0;
+    if (context > 0 && total > context * 0.95) {
+        throw new ChatValidationError(
+            `This conversation no longer fits in the model's ${context}-token context window. ` +
+            `Start a new chat, or switch to a model with a larger context.`
+        );
     }
 }
 

@@ -3,17 +3,16 @@
 A local AI chat app. Chat with **SmolLM2 1.7B Instruct** running entirely on your own
 machine through [`node-llama-cpp`](https://github.com/withcatai/node-llama-cpp).
 
-No API keys. No accounts. Nothing you type is sent to a third party — the model runs in
-the same process as the server on your computer.
+No API keys. No accounts. Nothing you type is sent to a third party.
 
 > The name is just a name; there is no voxel rendering here.
 
 ## Requirements
 
 - **Node.js 20 or newer**
-- **~1.5 GB free disk space** (1.06 GB model + llama.cpp binaries)
+- **~1.5 GB free disk space** for the model cache
+- **~1.5 GB free RAM** (see [Memory use](#memory-use))
 - Any modern browser
-- No GPU required — it runs on the CPU. A GPU is used automatically if one is available.
 
 ## Quick start
 
@@ -24,53 +23,71 @@ npm start
 
 Then open **http://localhost:3000**.
 
-On the first run, VoxelChat downloads the model (~1.06 GB) into `models/` and shows
-progress in the sidebar. This happens once. Every run after that loads from disk in a
-few seconds.
+The first run caches SmolLM2 (~1.06 GB) and shows progress in the sidebar. Every run after
+that loads straight from the cache — no download.
 
-To use a different port:
+## How models are cached
 
-```bash
-PORT=8080 npm start
+Model files live in `cache/models/` and are treated as a **cache**, not as part of the app:
+
+- Nothing is bundled or installed. A missing model is fetched automatically.
+- Downloads go to a `.partial` file and are renamed into place only after the size and
+  SHA-256 checksum verify. An interrupted download can therefore never leave a truncated
+  `.gguf` that would later load as garbage.
+- Once cached, a model is never downloaded again. `Settings → Unload` frees its RAM but
+  keeps the file, so the next message reloads it from disk.
+- Removing a file (`Settings → Remove`) only means it will be downloaded again later.
+
+### Switching between models
+
+Only SmolLM2 1.7B is in the catalog today; adding more is a config change (see below).
+Switching uses **load-then-release**:
+
+1. The new model is loaded while the current one keeps answering.
+2. Only once the new model is ready is the old one released.
+
+Doing it in the other order would mean a failed load leaves you with no model at all.
+The tradeoff is that both are briefly resident, so a switch that would not fit in RAM is
+refused up front with a clear message rather than ending in an out-of-memory crash. In
+that case, unload first, then switch.
+
+### Adding a model
+
+Append an entry to `config/models.json` — no code changes needed:
+
+```json
+{
+  "id": "smollm2-360m-instruct-q8_0",
+  "name": "SmolLM2 360M Instruct",
+  "parameters": "360M",
+  "quantization": "Q8_0",
+  "sizeBytes": 386000000,
+  "minValidBytes": 300000000,
+  "contextSize": 8192,
+  "kvBytesPerToken": 49152,
+  "url": "https://huggingface.co/.../resolve/main/model.gguf",
+  "sha256": "optional-but-recommended"
+}
 ```
 
-## The model
-
-| | |
-|---|---|
-| Model | SmolLM2 1.7B Instruct |
-| Parameters | 1.7B |
-| Quantization | Q4_K_M |
-| File size | ~1.06 GB |
-| Context window | 4096 tokens |
-| Source | [HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF](https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF) |
-
-Only this one model is supported for now. The catalog lives in `src/models.js` — it is a
-single-entry array, so adding a second model later is a matter of adding another object.
+`kvBytesPerToken` is only used to estimate whether a swap will fit in RAM. It is
+`layers × kv_dim × 2 (K and V) × 2 bytes`.
 
 ## Configuration
-
-All configuration is optional environment variables:
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `PORT` | `3000` | HTTP port |
-| `VOXELCHAT_MODEL_PATH` | *(unset)* | Absolute path to an existing `.gguf` file. Skips the download entirely — useful offline or on a slow connection. |
-| `VOXELCHAT_MODELS_DIR` | `./models` | Where downloaded models are stored. |
-| `VOXELCHAT_AUTO_LOAD` | `true` | Set to `false` to defer loading until the first message. |
-| `VOXELCHAT_MAX_TOKENS` | `512` | Maximum tokens generated per reply. |
-| `VOXELCHAT_CONTEXT_SIZE` | *auto* | Context window in tokens. By default the largest that fits available RAM is chosen (see below). |
-
-Example, using a model file you already have:
-
-```bash
-VOXELCHAT_MODEL_PATH=/path/to/smollm2-1.7b-instruct-q4_k_m.gguf npm start
-```
+| `VOXELCHAT_CACHE_DIR` | `./cache/models` | Where model files are cached |
+| `VOXELCHAT_MODEL_PATH` | *(unset)* | Use a specific local `.gguf` instead of the default model |
+| `VOXELCHAT_AUTO_LOAD` | `true` | Set to `false` to defer loading until the first message |
+| `VOXELCHAT_CONTEXT_SIZE` | *auto* | Context window in tokens; by default the largest that fits RAM |
+| `VOXELCHAT_MAX_TOKENS` | `512` | Maximum tokens generated per reply |
 
 ## Memory use
 
-The model weights are ~1.06 GB, and the KV cache grows with the context window. For
-SmolLM2 1.7B the KV cache costs roughly **192 KB per token of context**:
+Weights are ~1.06 GB. The KV cache grows with the context window — for SmolLM2 1.7B it
+costs roughly **192 KB per token**:
 
 | Context window | KV cache | Weights + KV |
 |---|---|---|
@@ -79,114 +96,69 @@ SmolLM2 1.7B the KV cache costs roughly **192 KB per token of context**:
 | 2048 | 384 MB | ~1.44 GB |
 | 4096 | 768 MB | ~1.83 GB |
 
-On startup VoxelChat measures free RAM and picks the largest context that fits, so a
-2 GB machine gets a smaller window automatically instead of failing to allocate. The
-chosen size is logged at startup and shown in Settings. Override it with
-`VOXELCHAT_CONTEXT_SIZE` if you want to be explicit.
+At startup VoxelChat measures free RAM and picks the largest context that fits, so a 2 GB
+machine gets a smaller window instead of failing to allocate. The chosen size is logged
+and shown in Settings.
 
-Note that the GGUF file must still exist on disk: `node-llama-cpp` loads models by path
-(memory-mapped), and has no API for loading weights from a RAM buffer.
+Note that the model file must exist on disk: `node-llama-cpp` loads models by path
+(memory-mapped) and has no API for loading weights from a RAM buffer.
 
-## How it works
-
-```
-Browser (public/)                    Server (Node)                      llama.cpp
-─────────────────                    ─────────────                      ─────────
-chat UI, history in localStorage ──► POST /api/chat  ──► src/chat.js ──► SmolLM2
-      ▲                                  │  SSE stream        │
-      └──────── token chunks ────────────┘                    │
-                                                              │
-status indicator ◄── GET /api/status/stream ◄── src/model-manager.js
-```
-
-- **`server.js`** — Express server, SSE endpoints, graceful shutdown.
-- **`src/models.js`** — the model catalog (one entry).
-- **`src/model-manager.js`** — downloads, loads, and owns the single model + context instance.
-- **`src/chat.js`** — builds a session per request from the conversation history, streams
-  chunks, and rejects concurrent generations.
-- **`public/`** — the browser UI. Plain HTML/CSS/JS, no build step.
-
-Nothing in the browser talks to the model directly; it only calls this server.
-
-### API
+## API
 
 | Endpoint | Description |
 |---|---|
-| `GET /api/status` | Current model phase (`idle`/`downloading`/`loading`/`ready`/`error`) |
+| `GET /api/status` | Model list, active model, phase, generating flag |
 | `GET /api/status/stream` | The same, as a live SSE feed |
-| `POST /api/model/load` | Start loading the model manually |
+| `GET /api/models` | Catalog with `cached` / `active` flags |
+| `POST /api/models/switch` | Switch models. Body: `{id}` |
+| `POST /api/models/install` | Cache a model without loading it. Body: `{id}` |
+| `POST /api/models/uninstall` | Delete a cached file. Body: `{id}` |
+| `POST /api/models/unload` | Release the loaded model from RAM |
 | `POST /api/chat` | Stream a reply. Body: `{messages, systemPrompt}` |
-| `POST /api/chat/stop` | Stop the generation currently in flight |
-| `GET /api/model/download` | Redirects to the GGUF file on Hugging Face |
+| `POST /api/chat/stop` | Stop the generation in flight |
 
-`POST /api/chat` responds with server-sent events: `chunk` frames (`{text}`), then either
-a `done` frame or an `error` frame. Aborting the request stops generation immediately.
+`POST /api/chat` responds with server-sent events: `chunk` frames (`{text}`), then a
+`done` or `error` frame.
 
 ## Troubleshooting
 
-Run this first — it checks Node, memory, the install, the network, and the model file:
+Run this first — it checks Node, memory, the install, the network, and the cache:
 
 ```bash
 npm run doctor
 ```
 
-### `npm install` fails
+### The model download fails
 
-`npm install` compiles nothing by default: `node-llama-cpp` ships prebuilt binaries for
-macOS (Intel and Apple Silicon), Windows x64/arm64, and Linux x64/arm64. The usual causes
-of a failed install are:
-
-1. **Node.js is too old.** Check with `node -v`; you need **20 or newer**. This is the
-   most common cause, and npm reports it as an `EBADENGINE` warning or a confusing
-   dependency error.
-2. **No prebuilt binary for your platform.** On Linux `armv7l`, `riscv64`, or unusual
-   architectures, npm falls back to building llama.cpp from source, which needs `cmake`
-   and a C++ toolchain. Install those, or fetch a binary with
-   `npx --no-install node-llama-cpp source download`.
-3. **A corporate proxy or firewall blocks `registry.npmjs.org`.**
-4. **A stale lockfile or partial `node_modules`.** Try:
-
-   ```bash
-   rm -rf node_modules package-lock.json
-   npm install
-   ```
-
-If it still fails, `npm install` prints the underlying error above its own summary —
-copy the first `ERR!` block, not the last line.
-
-**The model download stalls or fails.** The built-in downloader pulls from Hugging Face.
-You can fetch the file by hand instead:
+The download comes from Hugging Face. If it is blocked, fetch the file yourself:
 
 ```bash
-curl -L -o models/smollm2-1.7b-instruct-q4_k_m.gguf \
+curl -L -o cache/models/smollm2-1.7b-instruct-q4_k_m.gguf \
   https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf
 ```
 
-Place it in `models/` (or point `VOXELCHAT_MODEL_PATH` at it) and restart.
+Then `npm start` — it will be picked up from the cache without downloading.
 
-**`npm install` fails while building llama.cpp.** Prebuilt binaries cover macOS, Linux,
-and Windows. If none match your platform, it builds from source with `cmake`, which needs
-a working C++ toolchain.
+### "The downloaded file is only X MB"
 
-**Replies are slow.** A 1.7B model on CPU is roughly 10–40 tokens/second depending on the
-machine, so a long answer takes a while. `VOXELCHAT_MAX_TOKENS` caps reply length.
+The server returned an error page instead of the model (usually a redirect or a captive
+portal). The file is discarded rather than cached, so retrying is safe.
 
-**Out of memory.** Close other applications, or use a smaller quant
-(`Q4_K_S` is ~999 MB) by editing the entry in `src/models.js`.
+### "This is a different model"
 
-**"This is a different model" on startup.** VoxelChat checks the size and parameter
-count of whatever GGUF it loads. If the file is far too small to be SmolLM2 1.7B, it
-refuses to run it, because a wrong model still loads and generates happily — it just
-produces nonsense. Delete the file in `models/` and let it download again, or fix
-`VOXELCHAT_MODEL_PATH`.
+VoxelChat checks a file's size before using it. A wrong `.gguf` still loads and generates
+without error — it just produces nonsense — so this fails loudly instead.
+
+### Replies are slow
+
+A 1.7B model on CPU runs at roughly 10–40 tokens/second. `VOXELCHAT_MAX_TOKENS` caps reply
+length.
 
 ## Notes
 
 - Conversations and the system prompt are saved in your browser's `localStorage`.
-- The server binds to all interfaces so it can be reached from other devices on your
-  network. It has **no authentication** — don't expose it to the public internet.
-- This is a development server. For anything beyond personal use, add auth, rate
-  limiting, and HTTPS.
+- The server binds all interfaces, has no authentication, and is a development server.
+  Don't expose it to the public internet.
 
 ## License
 
