@@ -1,11 +1,20 @@
 # 🧊 VoxelChat
 
-**Just an AI chatting interface — running 100% locally on your computer.**
-No accounts. No API keys. No cloud. Nothing to install.
+**Just open the link and chat with AI. That's the whole instruction.**
 
-![Built with node-llama-cpp](https://img.shields.io/badge/AI-node--llama.cpp-green)
+## 🌐 Use it now — GitHub Pages
 
-## ▶️ The only step
+**https://the-creative-master.github.io/VoxelChat/**
+
+Open it, wait a few seconds the first time while the AI arrives in your tab, and type. No install. No account. No API key. No files to download, cache, or configure — for you or anyone you share the link with.
+
+VoxelChat runs a real AI model (**SmolLM2 1.7B**) entirely **inside your browser** using llama.cpp compiled to WebAssembly ([@wllama/wllama](https://github.com/ngxson/wllama)). The first visit automatically loads the model into your browser's cache; every visit after that opens instantly and even works offline. Nothing you type ever leaves your device.
+
+> Publishing: pushing to this repo runs *Actions → Publish VoxelChat to GitHub Pages*, which deploys the static site in `pages/`. The Node.js local-server version below is kept for offline desktop use.
+
+---
+
+## 🖥️ Optional: run it as a local desktop app
 
 ```bash
 npm start

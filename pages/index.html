@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0e1512">
+<meta name="description" content="VoxelChat — chat with a real AI that runs entirely in your browser. Open the page and type. Nothing to install, no account, no API key.">
+<title>VoxelChat — AI Chat in Your Browser</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="cube" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="brand-name">Voxel<b>Chat</b></span>
+      <span class="tag">AI in your browser</span>
+    </div>
+    <div class="top-actions">
+      <span class="status"><i class="dot busy" id="dot"></i><span id="statusText">Starting…</span></span>
+      <button class="ghost-btn" id="newChat" type="button">＋ New chat</button>
+    </div>
+  </header>
+
+  <div class="progress-wrap hidden" id="progressWrap">
+    <div class="progress-label" id="progressLabel">Preparing your AI…</div>
+    <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+    <p class="progress-note">First visit only — after this, VoxelChat opens instantly from your browser's cache and works offline. Nothing is installed and nothing you type ever leaves your device.</p>
+  </div>
+
+  <main class="chat" id="chat">
+    <div class="welcome" id="welcome">
+      <span class="cube big" aria-hidden="true"><i></i><i></i><i></i></span>
+      <h1>Chat with AI.<br><span>Right here. That's it.</span></h1>
+      <p>No install. No account. No API key.<br>VoxelChat runs a real AI model (SmolLM2 1.7B) entirely in your browser tab.</p>
+      <div class="suggestions">
+        <button type="button" data-prompt="Hello! What can you help me with?">👋 Say hello</button>
+        <button type="button" data-prompt="Explain how the internet works like I'm five.">💡 Explain something simply</button>
+        <button type="button" data-prompt="Write a haiku about a robot learning to paint.">🎨 Write me a haiku</button>
+        <button type="button" data-prompt="Give me 5 ideas for a fun weekend project.">🚀 Brainstorm ideas</button>
+      </div>
+    </div>
+    <div class="messages" id="messages" aria-live="polite"></div>
+  </main>
+
+  <footer class="composer-wrap">
+    <div class="error-banner hidden" id="errorBanner"><span id="errorText"></span><button type="button" id="retryBtn">Retry</button></div>
+    <form class="composer" id="form">
+      <textarea id="input" rows="1" placeholder="Message VoxelChat…" aria-label="Message VoxelChat" maxlength="8000" disabled></textarea>
+      <button class="send" id="sendBtn" type="submit" aria-label="Send message" disabled>↑</button>
+    </form>
+    <p class="hint" id="modelHint">Loading the AI into this tab… · Enter to send · Shift+Enter for a new line</p>
+  </footer>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
