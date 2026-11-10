@@ -1,30 +1,52 @@
-# VoxelChat
+# 🧊 VoxelChat
 
-A polished, static AI chat and image-generation interface designed for **GitHub Pages**. It discovers model catalogs from OpenAI-compatible providers, including OpenRouter's hundreds of available models, and sends requests directly from your browser.
+**Just an AI chatting interface — running 100% locally on your computer.**
+No accounts. No API keys. No cloud. Nothing to install.
 
-## Deploy on GitHub Pages
+![Built with node-llama-cpp](https://img.shields.io/badge/AI-node--llama.cpp-green)
 
-1. In the repository, open **Settings → Pages**.
-2. Under **Build and deployment**, choose **Deploy from a branch**.
-3. Select `main` and the `/(root)` folder, then save.
-4. Open the published Pages URL after the deployment finishes.
+## ▶️ The only step
 
-The site is plain HTML, CSS, and JavaScript—no Node server or build step is required. GitHub Pages serves the root `index.html`; `server.js` is not used by the static app.
+```bash
+npm start
+```
 
-## Connect chat models
+Then open **http://localhost:3000** and chat.
 
-1. Open **Settings & providers** inside VoxelChat.
-2. Choose **OpenRouter — hundreds of models**, enter an OpenRouter API key, and save.
-3. Use the model selector in the message composer. VoxelChat fetches the provider's live model list; available models depend on your account and provider.
+That's it. On the first launch VoxelChat automatically:
 
-OpenAI, custom OpenAI-compatible APIs, and local Ollama are also supported. For Ollama, allow the Pages origin in Ollama's `OLLAMA_ORIGINS` configuration and make the local server reachable from the browser. A hosted GitHub Pages site cannot reach another user's localhost unless they configure that local service and browser access.
+1. Installs its one dependency (`node-llama-cpp`) for you,
+2. Downloads a small open AI model once (~400 MB, Qwen2.5 0.5B Instruct),
+3. Loads it and starts chatting.
 
-## Image generation
+After that first download, VoxelChat works **fully offline**, forever. Your conversations never leave your machine, and chat history is kept only in your browser.
 
-Open **Image studio** and configure an image API base URL, image model, and API key in Settings. The current implementation sends OpenAI-compatible `POST /images/generations` requests (for example, OpenAI's Images API). A chat provider's key is reused when the image key is blank. The endpoint must allow browser CORS requests and support the requested image model and parameters.
+> You need [Node.js](https://nodejs.org) 18+ — that's the only prerequisite, and it's what runs the app itself.
 
-## Important security and hosting limits
+## ✨ Features
 
-GitHub Pages is static hosting; it cannot securely store API keys or hide provider requests behind a server. Keys are saved in this browser's local storage and sent directly to the chosen provider. Use a restricted key, avoid shared devices, and never commit keys to this repository. For a public production app, put provider calls behind a backend you control, with authentication, rate limiting, and secret management.
+- 💬 Clean, streaming chat interface (tokens appear as they're generated)
+- ⏹️ Stop generation, ➕ new chat, 💾 history saved in your browser
+- 📊 Live status: watch the one-time model download, then "Ready · offline"
+- 🔒 Private by design — no keys, no servers, no tracking
+- 🧠 Real local LLM inference via [node-llama-cpp](https://node-llama-cpp.withcat.ai/) (llama.cpp)
 
-Chat history and settings are stored in the browser's local storage. Clearing site data removes them. Model availability, pricing, and image-generation support are determined by the selected provider.
+## 🔧 Optional tweaks (all optional, via environment variables)
+
+| Variable | What it does |
+|---|---|
+| `PORT` | Port to serve on (default `3000`) |
+| `MODEL_PATH` | Path to a specific `.gguf` model to use |
+| `MODEL_URI` | URL/URI of a model to auto-download instead of the default |
+| `SYSTEM_PROMPT` | Custom personality/instructions for the assistant |
+
+**Want a smarter model?** Drop any `.gguf` file into the `models/` folder and restart — VoxelChat will use it automatically (bigger models need more RAM and answer more slowly).
+
+## 📁 Project layout
+
+```
+start.mjs          ← launcher: auto-installs deps, then boots the server
+server.mjs         ← local server + node-llama-cpp model engine (built-in Node http, no framework)
+public/            ← the chat interface (index.html, styles.css, app.js)
+models/            ← the AI model lives here (auto-downloaded, git-ignored)
+```

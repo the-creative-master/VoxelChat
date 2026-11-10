@@ -1,11 +1,17 @@
 {
   "name": "voxelchat",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Static GitHub Pages AI chat and image generation interface",
+  "type": "module",
+  "description": "VoxelChat — a private, fully local AI chat powered by node-llama.cpp. No API keys, no cloud, nothing to install.",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
+    "start": "node start.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "node-llama-cpp": "^3.14.1"
   },
   "license": "MIT"
 }

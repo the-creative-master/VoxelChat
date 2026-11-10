@@ -1,108 +1,116 @@
-const modelSelect = document.getElementById('modelSelect');
-const chatMessages = document.getElementById('chatMessages');
-const chatForm = document.getElementById('chatForm');
-const promptInput = document.getElementById('promptInput');
-const sendButton = document.getElementById('sendButton');
+// VoxelChat frontend — talks only to the local VoxelChat server on this machine.
+const $ = (s) => document.querySelector(s);
+const messagesEl = $("#messages"), welcomeEl = $("#welcome"), inputEl = $("#input");
+const sendBtn = $("#sendBtn"), stopBtn = $("#stopBtn"), statusText = $("#statusText");
+const dot = document.querySelector("#status .dot");
 
-let activeModels = [];
+let messages = JSON.parse(localStorage.getItem("voxelchat.messages") || "[]");
+let ready = false, generating = false, controller = null;
 
-function addMessage(role, text) {
-  const wrapper = document.createElement('div');
-  wrapper.className = `message ${role}`;
-
-  const label = document.createElement('span');
-  label.className = 'role';
-  label.textContent = role === 'user' ? 'You' : 'VoxelChat';
-
-  const body = document.createElement('div');
-  body.textContent = text;
-
-  wrapper.appendChild(label);
-  wrapper.appendChild(body);
-  chatMessages.appendChild(wrapper);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+// ---------- tiny safe markdown (escape first, then format) ----------
+function render(text) {
+  let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, l, c) => `<pre><code>${c.replace(/\n$/, "")}</code></pre>`);
+  html = html.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+  html = html.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
+  return html.split(/\n{2,}/).map((p) => (p.startsWith("<pre>") ? p : `<p>${p.replace(/\n/g, "<br>")}</p>`)).join("");
 }
 
-async function loadModels() {
+function addBubble(role, text) {
+  welcomeEl.classList.add("hidden");
+  const wrap = document.createElement("div");
+  wrap.className = `msg ${role === "user" ? "user" : "ai"}`;
+  wrap.innerHTML = `<span class="avatar">${role === "user" ? "🧑" : "V"}</span><div class="bubble"></div>`;
+  wrap.querySelector(".bubble").innerHTML = text ? render(text) : `<span class="typing"><i></i><i></i><i></i></span>`;
+  messagesEl.appendChild(wrap);
+  scrollDown();
+  return wrap.querySelector(".bubble");
+}
+function scrollDown() { $("#chat").scrollTo({ top: $("#chat").scrollHeight, behavior: "smooth" }); }
+
+function renderHistory() {
+  messagesEl.innerHTML = "";
+  if (!messages.length) { welcomeEl.classList.remove("hidden"); return; }
+  for (const m of messages) addBubble(m.role, m.content);
+}
+function save() { localStorage.setItem("voxelchat.messages", JSON.stringify(messages.slice(-60))); }
+
+// ---------- model status ----------
+async function pollStatus() {
   try {
-    const response = await fetch('/api/models');
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || 'Failed to load models');
-    }
-
-    activeModels = data.models || [];
-    modelSelect.innerHTML = '';
-
-    activeModels.forEach((model) => {
-      const option = document.createElement('option');
-      option.value = model;
-      option.textContent = model;
-      modelSelect.appendChild(option);
-    });
-  } catch (error) {
-    console.error(error);
-    const fallback = ['llama3.2'];
-    activeModels = fallback;
-    modelSelect.innerHTML = '<option value="llama3.2">llama3.2</option>';
-    addMessage('bot', `Could not load models from Ollama. Using fallback model: ${fallback[0]}. Make sure Ollama is running.`);
-  }
+    const s = await (await fetch("/api/status")).json();
+    ready = s.phase === "ready";
+    const pct = s.total ? Math.floor((s.downloaded / s.total) * 100) : 0;
+    const mb = (n) => (n / 1048576).toFixed(0);
+    if (s.phase === "downloading") {
+      statusText.textContent = `Downloading model… ${pct}%`;
+      $("#progressWrap").classList.remove("hidden");
+      $("#progressLabel").textContent = `Downloading your AI model — one time only (${mb(s.downloaded)} / ${mb(s.total)} MB). After this, VoxelChat works fully offline.`;
+      $("#progressBar").style.width = pct + "%";
+    } else if (s.phase === "loading") { statusText.textContent = "Loading model…"; $("#progressWrap").classList.add("hidden"); }
+    else if (s.phase === "ready") {
+      statusText.textContent = "Ready · offline"; dot.className = "dot";
+      $("#progressWrap").classList.add("hidden"); $("#modelHint").textContent = `${s.modelName} · running 100% locally · Enter to send`;
+    } else if (s.phase === "error") {
+      statusText.textContent = "Model failed to start"; dot.className = "dot off";
+      $("#errorText").textContent = "⚠️ The local model couldn't start (first launch needs internet to download it once). " + (s.error || "");
+      $("#errorBanner").classList.remove("hidden");
+    } else statusText.textContent = "Starting…";
+    dot.classList.toggle("busy", !ready && s.phase !== "error");
+    sendBtn.disabled = !ready || !inputEl.value.trim() || generating;
+  } catch { statusText.textContent = "Connecting…"; }
+  setTimeout(pollStatus, 1200);
 }
 
-async function sendPrompt(event) {
-  event.preventDefault();
-
-  const message = promptInput.value.trim();
-  if (!message) return;
-
-  const selectedModel = modelSelect.value;
-  promptInput.value = '';
-  sendButton.disabled = true;
-  addMessage('user', message);
-  addMessage('bot', 'Thinking...');
-
+// ---------- chat ----------
+async function send(text) {
+  text = (text ?? inputEl.value).trim();
+  if (!text || !ready || generating) return;
+  messages.push({ role: "user", content: text }); save();
+  addBubble("user", text);
+  inputEl.value = ""; autoGrow();
+  generating = true; stopBtn.classList.remove("hidden"); sendBtn.classList.add("hidden");
+  const bubble = addBubble("assistant", "");
+  let reply = "";
+  controller = new AbortController();
   try {
-    const response = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: selectedModel,
-        messages: [{ role: 'user', content: message }],
-      }),
+    const res = await fetch("/api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages }), signal: controller.signal,
     });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || 'Request failed');
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Request failed");
+    const reader = res.body.getReader(), decoder = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const events = buf.split("\n\n"); buf = events.pop();
+      for (const ev of events) {
+        const data = JSON.parse(ev.split("\ndata: ")[1] || "{}");
+        if (ev.startsWith("event: token")) { reply += data.text; bubble.innerHTML = render(reply); scrollDown(); }
+        if (ev.startsWith("event: error")) throw new Error(data.error);
+      }
     }
-
-    const lastMessage = chatMessages.lastElementChild;
-    if (lastMessage && lastMessage.classList.contains('bot')) {
-      lastMessage.remove();
-    }
-
-    addMessage('bot', data.reply || 'No reply returned.');
-  } catch (error) {
-    const lastMessage = chatMessages.lastElementChild;
-    if (lastMessage && lastMessage.classList.contains('bot')) {
-      lastMessage.remove();
-    }
-
-    addMessage('bot', `Error: ${error.message}`);
-  } finally {
-    sendButton.disabled = false;
-    promptInput.focus();
+  } catch (err) {
+    if (err.name !== "AbortError") reply = reply || "⚠️ " + err.message;
   }
+  bubble.innerHTML = render(reply || "…");
+  if (reply && !reply.startsWith("⚠️")) { messages.push({ role: "assistant", content: reply }); save(); }
+  generating = false; stopBtn.classList.add("hidden"); sendBtn.classList.remove("hidden");
+  pollStatus(); inputEl.focus();
 }
 
-chatForm.addEventListener('submit', sendPrompt);
-promptInput.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter' && !event.shiftKey) {
-    event.preventDefault();
-    chatForm.requestSubmit();
-  }
-});
+function autoGrow() { inputEl.style.height = "auto"; inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + "px"; sendBtn.disabled = !ready || !inputEl.value.trim() || generating; }
 
-loadModels();
+$("#form").addEventListener("submit", (e) => { e.preventDefault(); send(); });
+inputEl.addEventListener("input", autoGrow);
+inputEl.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+stopBtn.addEventListener("click", () => controller?.abort());
+$("#newChat").addEventListener("click", () => { messages = []; save(); renderHistory(); inputEl.focus(); });
+$("#retryBtn").addEventListener("click", async () => { $("#errorBanner").classList.add("hidden"); await fetch("/api/retry", { method: "POST" }); });
+document.querySelectorAll(".suggestions button").forEach((b) => b.addEventListener("click", () => { if (ready) send(b.dataset.prompt); else { inputEl.value = b.dataset.prompt; autoGrow(); } }));
+
+renderHistory();
+pollStatus();
+inputEl.focus();
