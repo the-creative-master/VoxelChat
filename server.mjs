@@ -1,9 +1,10 @@
 // VoxelChat server — a local AI chat powered by node-llama.cpp.
 //
 // • No API keys, no cloud, no accounts. Everything runs on this machine.
-// • On first launch a small open model (~400 MB) is downloaded once into
-//   ./models and reused forever after. Drop any .gguf file in ./models
-//   and VoxelChat will use that instead.
+// • NO downloading at runtime: the model (SmolLM2 1.7B Instruct, Q4_K_M)
+//   is CACHED in ./models and loaded straight from disk. The cache is
+//   populated once by `npm run cache-model` (also run in CI) — after
+//   that VoxelChat never touches the network.
 // • Only dependency: node-llama-cpp (auto-installed by `npm start`).
 import http from "node:http";
 import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
@@ -16,11 +17,9 @@ const MODELS_DIR = path.join(ROOT, "models");
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
 
-// Small, fast, capable-enough instruct model — good on ordinary laptops.
-const MODEL_URI =
-  process.env.MODEL_URI ||
-  "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf";
-const MODEL_NAME = process.env.MODEL_NAME || "Qwen2.5 0.5B (local)";
+// SmolLM2 1.7B Instruct (Q4_K_M, ~1.1 GB) — cached locally, never downloaded at runtime.
+export const CACHED_MODEL_FILE = "smollm2-1.7b-instruct-q4_k_m.gguf";
+const MODEL_NAME = process.env.MODEL_NAME || "SmolLM2 1.7B (cached)";
 const SYSTEM_PROMPT =
   process.env.SYSTEM_PROMPT ||
   "You are VoxelChat, a friendly and helpful AI assistant running fully offline on the user's own computer. " +
@@ -28,10 +27,9 @@ const SYSTEM_PROMPT =
 
 // ---------------------------------------------------------------- state
 const state = {
-  phase: "starting", // starting | downloading | loading | ready | error
-  downloaded: 0,
-  total: 0,
+  phase: "starting", // starting | loading | ready | missing | error
   modelName: MODEL_NAME,
+  cached: false,
   error: null,
 };
 
@@ -41,7 +39,10 @@ let context = null;
 let chatChain = Promise.resolve(); // serialize generations (one local model)
 
 function localModelFile() {
+  // 1) explicit override, 2) the cached SmolLM2 1.7B, 3) any other cached .gguf.
   if (process.env.MODEL_PATH && existsSync(process.env.MODEL_PATH)) return process.env.MODEL_PATH;
+  const cached = path.join(MODELS_DIR, CACHED_MODEL_FILE);
+  if (existsSync(cached)) return cached;
   try {
     const ggufs = readdirSync(MODELS_DIR)
       .filter((f) => f.toLowerCase().endsWith(".gguf"))
@@ -53,34 +54,29 @@ function localModelFile() {
 
 async function initModel() {
   try {
-    const { getLlama, loadModel, createContext, resolveModelFile } = await import("node-llama-cpp");
-    let modelPath = localModelFile();
-    if (modelPath) {
-      state.modelName = path.basename(modelPath).replace(/\.gguf$/i, "");
-      console.log(`🧠 Using local model: ${modelPath}`);
-    } else {
-      state.phase = "downloading";
-      console.log("⬇️  First launch: downloading the AI model (one time only, ~400 MB)…");
-      modelPath = await resolveModelFile(MODEL_URI, {
-        directory: MODELS_DIR,
-        download: "auto",
-        onProgress: ({ downloaded, total }) => {
-          state.downloaded = downloaded;
-          state.total = total;
-        },
-      });
-      console.log("✅ Model downloaded.");
+    const modelPath = localModelFile();
+    if (!modelPath) {
+      // No runtime downloading — the model must already be in the cache.
+      state.phase = "missing";
+      state.error = `Cached model not found: models/${CACHED_MODEL_FILE}. Run \`npm run cache-model\` once to populate the cache.`;
+      console.error(`❌ ${state.error}`);
+      return;
     }
+    state.cached = true;
+    if (path.basename(modelPath) === CACHED_MODEL_FILE) state.modelName = MODEL_NAME;
+    else state.modelName = path.basename(modelPath).replace(/\.gguf$/i, "");
+    console.log(`🧠 Loading cached model (no download): ${modelPath}`);
+    const { getLlama } = await import("node-llama-cpp");
     state.phase = "loading";
     llama = await getLlama();
     model = await llama.loadModel({ modelPath });
-    context = await model.createContext({ contextSize: 4096, threads: Number(process.env.THREADS || 0) || undefined });
+    context = await model.createContext({ contextSize: 2048, threads: Number(process.env.THREADS || 0) || undefined });
     state.phase = "ready";
-    console.log("✅ VoxelChat AI is ready — fully offline from here on.");
+    console.log("✅ VoxelChat AI is ready — cached locally, fully offline.");
   } catch (err) {
     state.phase = "error";
     state.error = String(err?.message || err);
-    console.error("❌ Failed to start the local model:", err);
+    console.error("❌ Failed to load the cached model:", err);
   }
 }
 
@@ -162,7 +158,7 @@ const server = http.createServer((req, res) => {
   const { pathname } = new URL(req.url, "http://x");
   if (pathname === "/api/status") return sendJson(res, 200, state);
   if (pathname === "/api/retry" && req.method === "POST") {
-    if (state.phase === "error") { state.phase = "starting"; state.error = null; initModel(); }
+    if (state.phase === "error" || state.phase === "missing") { state.phase = "starting"; state.error = null; initModel(); }
     return sendJson(res, 200, state);
   }
   if (pathname === "/api/chat" && req.method === "POST") return void handleChat(req, res);

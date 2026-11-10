@@ -5,7 +5,8 @@
   "type": "module",
   "description": "VoxelChat — a private, fully local AI chat powered by node-llama.cpp. No API keys, no cloud, nothing to install.",
   "scripts": {
-    "start": "node start.mjs"
+    "start": "node start.mjs",
+    "cache-model": "node scripts/cache-model.mjs"
   },
   "engines": {
     "node": ">=18"

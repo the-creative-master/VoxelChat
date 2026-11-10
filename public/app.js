@@ -40,20 +40,13 @@ async function pollStatus() {
   try {
     const s = await (await fetch("/api/status")).json();
     ready = s.phase === "ready";
-    const pct = s.total ? Math.floor((s.downloaded / s.total) * 100) : 0;
-    const mb = (n) => (n / 1048576).toFixed(0);
-    if (s.phase === "downloading") {
-      statusText.textContent = `Downloading model… ${pct}%`;
-      $("#progressWrap").classList.remove("hidden");
-      $("#progressLabel").textContent = `Downloading your AI model — one time only (${mb(s.downloaded)} / ${mb(s.total)} MB). After this, VoxelChat works fully offline.`;
-      $("#progressBar").style.width = pct + "%";
-    } else if (s.phase === "loading") { statusText.textContent = "Loading model…"; $("#progressWrap").classList.add("hidden"); }
+    if (s.phase === "loading") statusText.textContent = `Loading ${s.modelName}…`;
     else if (s.phase === "ready") {
       statusText.textContent = "Ready · offline"; dot.className = "dot";
-      $("#progressWrap").classList.add("hidden"); $("#modelHint").textContent = `${s.modelName} · running 100% locally · Enter to send`;
-    } else if (s.phase === "error") {
-      statusText.textContent = "Model failed to start"; dot.className = "dot off";
-      $("#errorText").textContent = "⚠️ The local model couldn't start (first launch needs internet to download it once). " + (s.error || "");
+      $("#modelHint").textContent = `${s.modelName} · cached on this machine, no download · Enter to send`;
+    } else if (s.phase === "error" || s.phase === "missing") {
+      statusText.textContent = s.phase === "missing" ? "Model not cached" : "Model failed to start"; dot.className = "dot off";
+      $("#errorText").textContent = "⚠️ " + (s.error || "The cached local model couldn't start.");
       $("#errorBanner").classList.remove("hidden");
     } else statusText.textContent = "Starting…";
     dot.classList.toggle("busy", !ready && s.phase !== "error");

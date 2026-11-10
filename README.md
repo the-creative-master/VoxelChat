@@ -13,13 +13,9 @@ npm start
 
 Then open **http://localhost:3000** and chat.
 
-That's it. On the first launch VoxelChat automatically:
+That's it. VoxelChat automatically installs its one dependency (`node-llama-cpp`) for you — and that's the only installing that ever happens.
 
-1. Installs its one dependency (`node-llama-cpp`) for you,
-2. Downloads a small open AI model once (~400 MB, Qwen2.5 0.5B Instruct),
-3. Loads it and starts chatting.
-
-After that first download, VoxelChat works **fully offline**, forever. Your conversations never leave your machine, and chat history is kept only in your browser.
+**The AI model is never downloaded at runtime.** VoxelChat runs **SmolLM2 1.7B Instruct** (Q4_K_M, ~1.1 GB, Apache-2.0) straight from a local cache in `models/`. The cache is populated once — either it already ships with your copy, or you run `npm run cache-model` a single time (CI does this too, see *Actions → Cache SmolLM2 1.7B model*). From then on VoxelChat is **fully offline**, forever. Your conversations never leave your machine, and chat history is kept only in your browser.
 
 > You need [Node.js](https://nodejs.org) 18+ — that's the only prerequisite, and it's what runs the app itself.
 
@@ -37,7 +33,6 @@ After that first download, VoxelChat works **fully offline**, forever. Your conv
 |---|---|
 | `PORT` | Port to serve on (default `3000`) |
 | `MODEL_PATH` | Path to a specific `.gguf` model to use |
-| `MODEL_URI` | URL/URI of a model to auto-download instead of the default |
 | `SYSTEM_PROMPT` | Custom personality/instructions for the assistant |
 
 **Want a smarter model?** Drop any `.gguf` file into the `models/` folder and restart — VoxelChat will use it automatically (bigger models need more RAM and answer more slowly).
@@ -48,5 +43,5 @@ After that first download, VoxelChat works **fully offline**, forever. Your conv
 start.mjs          ← launcher: auto-installs deps, then boots the server
 server.mjs         ← local server + node-llama-cpp model engine (built-in Node http, no framework)
 public/            ← the chat interface (index.html, styles.css, app.js)
-models/            ← the AI model lives here (auto-downloaded, git-ignored)
+models/            ← the cached SmolLM2 1.7B model lives here (loaded from disk, never downloaded at runtime)
 ```

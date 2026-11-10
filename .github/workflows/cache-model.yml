@@ -1,0 +1,39 @@
+name: Cache SmolLM2 1.7B model
+
+# Populates the model cache ONCE and stores it as a downloadable
+# release asset + workflow artifact. The VoxelChat server itself
+# never downloads anything — it only loads models/ from disk.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  cache-model:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Download SmolLM2 1.7B Instruct (Q4_K_M) into the cache
+        run: node scripts/cache-model.mjs
+      - name: Checksum
+        run: cd models && sha256sum smollm2-1.7b-instruct-q4_k_m.gguf | tee SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smollm2-1.7b-instruct-q4_k_m
+          path: |
+            models/smollm2-1.7b-instruct-q4_k_m.gguf
+            models/SHA256SUMS.txt
+          compression-level: 0
+          retention-days: 90
+      - name: Publish (or refresh) the model-cache release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view model-cache-v1 >/dev/null 2>&1 || \
+            gh release create model-cache-v1 --title "VoxelChat model cache — SmolLM2 1.7B" \
+              --notes "Cached SmolLM2 1.7B Instruct GGUF (Q4_K_M, Apache-2.0, upstream HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF). Place the .gguf in models/ — VoxelChat loads it from disk and never downloads at runtime."
+          gh release upload model-cache-v1 models/smollm2-1.7b-instruct-q4_k_m.gguf models/SHA256SUMS.txt --clobber
