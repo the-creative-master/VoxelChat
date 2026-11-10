@@ -5,6 +5,9 @@ name: Cache SmolLM2 1.7B model
 # never downloads anything — it only loads models/ from disk.
 on:
   workflow_dispatch:
+  push:
+    branches: [arena/166c7b09-voxelchat]
+    paths: [".github/workflows/cache-model.yml"]
 
 permissions:
   contents: write
