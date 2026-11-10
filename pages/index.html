@@ -52,6 +52,20 @@
     <p class="hint" id="modelHint">Loading the AI into this tab… · Enter to send · Shift+Enter for a new line</p>
   </footer>
 </div>
+<script>
+  // Boot watchdog: if the app module hasn't taken over within 30s, say so
+  // loudly (with a one-tap reload) instead of hanging on "Starting…".
+  window.__voxelBooted = Date.now();
+  setTimeout(() => {
+    if (!window.__voxelReady && !window.__voxelFailed) {
+      document.getElementById("statusText").textContent = "Still loading…";
+      document.getElementById("errorText").textContent = "⚠️ VoxelChat is taking unusually long to start. Your connection may have interrupted the first-time AI load.";
+      document.getElementById("errorBanner").classList.remove("hidden");
+      document.getElementById("retryBtn").textContent = "Reload";
+      document.getElementById("retryBtn").onclick = () => location.reload();
+    }
+  }, 30000);
+</script>
 <script type="module" src="app.js"></script>
 </body>
 </html>

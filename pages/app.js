@@ -1,10 +1,12 @@
 // VoxelChat for GitHub Pages — a real AI running 100% in this browser tab.
 //
 // No server, no install, no API key, nothing for the visitor to do:
-// llama.cpp (via @wllama/wllama WebAssembly) loads SmolLM2 1.7B once,
-// the browser caches it, and every later visit opens instantly — offline.
-import { Wllama } from "https://cdn.jsdelivr.net/npm/@wllama/wllama@3.13.0/esm/index.js";
-import WasmFromCDN from "https://cdn.jsdelivr.net/npm/@wllama/wllama@3.13.0/esm/wasm-from-cdn.js";
+// llama.cpp (via @wllama/wllama WebAssembly, vendored in ./wllama so
+// there is NO CDN dependency) loads SmolLM2 1.7B once, the browser
+// caches it, and every later visit opens instantly — offline.
+// The engine is loaded with a dynamic import inside initAI() so that
+// ANY failure is caught and shown — this page can never hang silently
+// on "Starting…" again.
 
 const $ = (s) => document.querySelector(s);
 const messagesEl = $("#messages"), welcomeEl = $("#welcome"), inputEl = $("#input");
@@ -37,10 +39,23 @@ function save() { localStorage.setItem("voxelchat.pages.messages", JSON.stringif
 function renderHistory() { messagesEl.innerHTML = ""; if (!messages.length) welcomeEl.classList.remove("hidden"); else for (const m of messages) addBubble(m.role, m.content); }
 
 // ---------- load the AI (automatic, cached by the browser) ----------
+function fail(err) {
+  console.error(err);
+  window.__voxelFailed = true;
+  dot.className = "dot off"; statusText.textContent = "Couldn't load the AI";
+  $("#progressWrap").classList.add("hidden");
+  $("#errorText").textContent = "⚠️ " + (err?.message || err) + " — check your connection (needed once), then Retry.";
+  $("#errorBanner").classList.remove("hidden");
+}
+window.addEventListener("error", (e) => { if (!ready) fail(e.error || new Error(e.message)); });
+window.addEventListener("unhandledrejection", (e) => { if (!ready) fail(e.reason); });
+
 async function initAI() {
   try {
-    statusText.textContent = "Preparing AI…";
-    wllama = new Wllama(WasmFromCDN, { allowOffline: true, suppressNativeLog: true });
+    statusText.textContent = "Loading AI engine…";
+    const { Wllama } = await import("./wllama/index.js");
+    statusText.textContent = "Starting AI engine…";
+    wllama = new Wllama({ default: "./wllama/wasm/wllama.wasm" }, { allowOffline: true, suppressNativeLog: true });
     $("#progressWrap").classList.remove("hidden");
     await wllama.loadModelFromHF(MODEL, {
       n_ctx: 2048,
@@ -57,17 +72,11 @@ async function initAI() {
       },
     });
     $("#progressWrap").classList.add("hidden");
-    ready = true; dot.className = "dot";
+    ready = true; window.__voxelReady = true; dot.className = "dot";
     statusText.textContent = "Ready · in your browser";
     $("#modelHint").textContent = "SmolLM2 1.7B · running in this tab, cached & private · Enter to send";
     inputEl.disabled = false; autoGrow(); inputEl.focus();
-  } catch (err) {
-    console.error(err);
-    dot.className = "dot off"; statusText.textContent = "Couldn't load the AI";
-    $("#progressWrap").classList.add("hidden");
-    $("#errorText").textContent = "⚠️ The AI couldn't load in this browser. Check your connection (needed once), then Retry. " + (err?.message || err);
-    $("#errorBanner").classList.remove("hidden");
-  }
+  } catch (err) { fail(err); }
 }
 
 // ---------- chat ----------
