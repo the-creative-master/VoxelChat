@@ -50,29 +50,58 @@ function fail(err) {
 window.addEventListener("error", (e) => { if (!ready) fail(e.error || new Error(e.message)); });
 window.addEventListener("unhandledrejection", (e) => { if (!ready) fail(e.reason); });
 
+// ---- honest loading UI: every real step is logged with a timestamp,
+ // and a ticking clock proves the page is alive while bytes flow.
+const bootT0 = Date.now();
+let lastBytes = 0, lastProgressAt = Date.now(), clockTimer = null;
+function stamp() { const s = Math.floor((Date.now() - bootT0) / 1000); return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; }
+function bootlog(msg) {
+  const el = $("#bootlog"); if (!el) return;
+  const line = document.createElement("div"); line.innerHTML = `<b>${stamp()}</b> ${msg}`;
+  el.appendChild(line); el.scrollTop = el.scrollHeight;
+}
+function startClock(label) {
+  clearInterval(clockTimer);
+  clockTimer = setInterval(() => { if (!ready) statusText.textContent = `${label} · ${stamp()}`; }, 500);
+}
+
 async function initAI() {
   try {
-    statusText.textContent = "Loading AI engine…";
-    const { Wllama } = await import("./wllama/index.js");
-    statusText.textContent = "Starting AI engine…";
-    wllama = new Wllama({ default: "./wllama/wasm/wllama.wasm" }, { allowOffline: true, suppressNativeLog: true });
     $("#progressWrap").classList.remove("hidden");
-    await wllama.loadModelFromHF(MODEL, {
-      n_ctx: 2048,
-      useCache: true,
-      allowOffline: true,
-      progressCallback: ({ loaded, total }) => {
-        if (!total) return;
-        const pct = Math.round((loaded / total) * 100);
-        $("#progressBar").style.width = pct + "%";
-        $("#progressLabel").textContent = pct >= 100
-          ? "Loading the AI into this tab…"
-          : `Bringing your AI to this tab — ${pct}% (${(loaded / 1048576).toFixed(0)} / ${(total / 1048576).toFixed(0)} MB, first visit only)`;
-        statusText.textContent = pct >= 100 ? "Loading model…" : `Loading AI… ${pct}%`;
-      },
-    });
+    bootlog("VoxelChat started — loading the AI engine built into this page…");
+    startClock("Loading AI engine");
+    const { Wllama } = await import("./wllama/index.js");
+    bootlog("AI engine code loaded — starting it up…");
+    wllama = new Wllama({ default: "./wllama/wasm/wllama.wasm" }, { allowOffline: true, suppressNativeLog: true });
+    bootlog("Engine running — checking your browser cache for the AI model (SmolLM2 1.7B, ~1.1 GB)…");
+    startClock("Fetching AI model");
+    let loggedPct = -10;
+    const onProgress = ({ loaded, total }) => {
+      lastBytes = loaded; lastProgressAt = Date.now();
+      if (!total) { $("#progressLabel").textContent = `Receiving the AI model… ${(loaded / 1048576).toFixed(0)} MB so far (${stamp()})`; return; }
+      const pct = Math.round((loaded / total) * 100);
+      $("#progressBar").classList.remove("indeterminate");
+      $("#progressBar").style.width = pct + "%";
+      $("#progressLabel").textContent = pct >= 100
+        ? "Model received — starting the AI (this can take ~30 seconds)…"
+        : `Bringing your AI to this tab — ${pct}% (${(loaded / 1048576).toFixed(0)} / ${(total / 1048576).toFixed(0)} MB, first visit only)`;
+      statusText.textContent = pct >= 100 ? `Starting AI… · ${stamp()}` : `Loading AI… ${pct}% · ${stamp()}`;
+      if (pct >= loggedPct + 10) { loggedPct = pct; bootlog(`Model download: ${pct}% (${(loaded / 1048576).toFixed(0)} MB)`); }
+    };
+    // If absolutely no bytes arrive for 90s, say so (and keep trying) —
+    // the UI must never sit silent and motionless again.
+    const stallWatch = setInterval(() => {
+      if (!ready && Date.now() - lastProgressAt > 90000) {
+        bootlog("⚠️ No data for 90 seconds — connection may be slow or blocked. Still trying… (the model comes from huggingface.co)");
+        lastProgressAt = Date.now();
+      }
+    }, 5000);
+    try {
+      await wllama.loadModelFromHF(MODEL, { n_ctx: 2048, useCache: true, allowOffline: true, progressCallback: onProgress });
+    } finally { clearInterval(stallWatch); }
+    bootlog(lastBytes > 0 ? "Model ready in memory — AI is awake." : "Model loaded from your browser cache — AI is awake.");
     $("#progressWrap").classList.add("hidden");
-    ready = true; window.__voxelReady = true; dot.className = "dot";
+    ready = true; window.__voxelReady = true; clearInterval(clockTimer); dot.className = "dot";
     statusText.textContent = "Ready · in your browser";
     $("#modelHint").textContent = "SmolLM2 1.7B · running in this tab, cached & private · Enter to send";
     inputEl.disabled = false; autoGrow(); inputEl.focus();

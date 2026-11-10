@@ -78,3 +78,9 @@ button{font:inherit;color:inherit}
 .send.stop{background:var(--danger);box-shadow:0 3px 0 #a33;font-size:13px}
 .hint{text-align:center;color:var(--muted);font-size:12px;margin:9px 0 0}
 @media (max-width:560px){.tag{display:none}.msg{max-width:95%}.brand-name{font-size:18px}}
+
+/* live boot log + honest loading states */
+.progress-bar.indeterminate{width:40%!important;animation:slide 1.2s ease-in-out infinite alternate}
+@keyframes slide{from{margin-left:0}to{margin-left:60%}}
+.bootlog{margin-top:10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.7;color:var(--muted);max-height:130px;overflow-y:auto;text-align:left}
+.bootlog div b{color:var(--accent);font-weight:600}
