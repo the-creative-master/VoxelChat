@@ -15,7 +15,7 @@ Then open **http://localhost:3000** and chat.
 
 That's it. VoxelChat automatically installs its one dependency (`node-llama-cpp`) for you — and that's the only installing that ever happens.
 
-**The AI model is never downloaded at runtime.** VoxelChat runs **SmolLM2 1.7B Instruct** (Q4_K_M, ~1.1 GB, Apache-2.0) straight from a local cache in `models/`. The cache is populated once — either it already ships with your copy, or you run `npm run cache-model` a single time (CI does this too, see *Actions → Cache SmolLM2 1.7B model*). From then on VoxelChat is **fully offline**, forever. Your conversations never leave your machine, and chat history is kept only in your browser.
+**The AI model is never downloaded at runtime.** VoxelChat runs **SmolLM2 1.7B Instruct** (Q4_K_M, ~1.1 GB, Apache-2.0) straight from a local cache in `models/`. The model is already cached for this project in the **[`model-cache-v1` release](../../releases/tag/model-cache-v1)** — put `smollm2-1.7b-instruct-q4_k_m.gguf` in `models/` (or run `npm run cache-model` once) and never think about it again. From then on VoxelChat is **fully offline**, forever. Your conversations never leave your machine, and chat history is kept only in your browser.
 
 > You need [Node.js](https://nodejs.org) 18+ — that's the only prerequisite, and it's what runs the app itself.
 
