@@ -34,9 +34,18 @@ your computer and works with the network unplugged.
 
 ### The normal way (no setup at all)
 
-1. Unpack the VoxelChat folder for your platform.
-2. Double-click **VoxelChat** (macOS / Linux) or **VoxelChat.cmd** (Windows).
-3. Your browser opens at `http://localhost:7842` and you are chatting.
+1. Download the folder for your platform from
+   [**Releases → VoxelChat 2.0**](https://github.com/the-creative-master/VoxelChat/releases/tag/voxelchat-v2).
+2. Unpack it.
+3. Double-click **VoxelChat** (macOS / Linux) or **VoxelChat.cmd** (Windows).
+4. Your browser opens at `http://localhost:7842` and you are chatting.
+
+| Platform | Download |
+| --- | --- |
+| Windows (x64) | [`VoxelChat-win-x64.zip`](https://github.com/the-creative-master/VoxelChat/releases/download/voxelchat-v2/VoxelChat-win-x64.zip) |
+| macOS (Apple Silicon) | [`VoxelChat-darwin-arm64.tar.gz`](https://github.com/the-creative-master/VoxelChat/releases/download/voxelchat-v2/VoxelChat-darwin-arm64.tar.gz) |
+| macOS (Intel) | [`VoxelChat-darwin-x64.tar.gz`](https://github.com/the-creative-master/VoxelChat/releases/download/voxelchat-v2/VoxelChat-darwin-x64.tar.gz) |
+| Linux (x64) | [`VoxelChat-linux-x64.tar.gz`](https://github.com/the-creative-master/VoxelChat/releases/download/voxelchat-v2/VoxelChat-linux-x64.tar.gz) |
 
 The folder already contains everything:
 
