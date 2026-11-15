@@ -5,10 +5,16 @@
  * and checks every endpoint the UI talks to.
  */
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import {createServer} from "../src/server.js";
 
-const instance = await createServer({port: 0});
+// A throw-away data/models folder so the test never touches the real settings.
+const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), "voxelchat-test-"));
+
+const instance = await createServer({port: 0, dataDir: sandbox, modelsDir: path.join(sandbox, "models")});
 const base = `http://127.0.0.1:${instance.port}`;
 
 try {
@@ -76,6 +82,7 @@ try {
     console.log("✔ VoxelChat API test passed");
 } finally {
     await instance.close();
+    await fs.rm(sandbox, {recursive: true, force: true});
 }
 
 process.exit(0);

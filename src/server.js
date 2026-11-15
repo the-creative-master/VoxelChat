@@ -22,11 +22,17 @@ const publicDir = path.join(projectRoot, "public");
 const modelsDir = path.join(projectRoot, "models");
 const dataDir = path.join(projectRoot, "data");
 
-export async function createServer({port = 7842, host = "0.0.0.0", openBrowser = false} = {}) {
-    const settingsStore = new SettingsStore(dataDir);
+export async function createServer({
+    port = 7842,
+    host = "0.0.0.0",
+    openBrowser = false,
+    dataDir: dataDirOverride = dataDir,
+    modelsDir: modelsDirOverride = modelsDir,
+} = {}) {
+    const settingsStore = new SettingsStore(dataDirOverride);
     await settingsStore.load();
 
-    const engine = new VoxelEngine({modelsDir, settings: settingsStore.settings});
+    const engine = new VoxelEngine({modelsDir: modelsDirOverride, settings: settingsStore.settings});
     const app = express();
 
     app.use(express.json({limit: "5mb"}));
@@ -83,7 +89,7 @@ export async function createServer({port = 7842, host = "0.0.0.0", openBrowser =
     });
 
     app.get("/api/models", async (_request, response) => {
-        const localModels = await listLocalModels(modelsDir);
+        const localModels = await listLocalModels(modelsDirOverride);
 
         response.json({
             catalog: MODEL_CATALOG.map((entry) => ({
@@ -108,14 +114,14 @@ export async function createServer({port = 7842, host = "0.0.0.0", openBrowser =
                 recommended: model.recommended,
             })),
             active: engine.activeModel?.id ?? null,
-            modelsDir,
+            modelsDir: modelsDirOverride,
         });
     });
 
     app.post("/api/models/activate", async (request, response) => {
         try {
             const {modelId} = request.body ?? {};
-            const localModels = await listLocalModels(modelsDir);
+            const localModels = await listLocalModels(modelsDirOverride);
             const target = localModels.find((model) => model.id === modelId || model.path === modelId);
 
             if (!target) {
@@ -148,7 +154,7 @@ export async function createServer({port = 7842, host = "0.0.0.0", openBrowser =
             const {downloadCatalogModel} = await import("./model-store.js");
 
             await downloadCatalogModel(catalogEntry, {
-                modelsDir,
+                modelsDir: modelsDirOverride,
                 log: (message) => console.log(`  ${message}`),
                 onProgress: (progress) => broadcast({...engine.status, download: {phase: "progress", label: catalogEntry.label, ...progress}}),
             });
@@ -173,6 +179,12 @@ export async function createServer({port = 7842, host = "0.0.0.0", openBrowser =
 
         const next = await settingsStore.save(patch);
         engine.settings = next;
+
+        if (patch.contextSize !== undefined) {
+            engine.setContextSize(patch.contextSize).catch((error) => {
+                console.error(`  Could not resize the context: ${error.message}`);
+            });
+        }
 
         response.json(next);
     });
@@ -259,13 +271,13 @@ export async function createServer({port = 7842, host = "0.0.0.0", openBrowser =
 
     app.post("/api/models/folder/open", async (_request, response) => {
         try {
-            await fs.mkdir(modelsDir, {recursive: true});
+            await fs.mkdir(modelsDirOverride, {recursive: true});
 
             const opener = process.platform === "win32" ? "explorer" : process.platform === "darwin" ? "open" : "xdg-open";
-            const child = spawn(opener, [modelsDir], {detached: true, stdio: "ignore"});
+            const child = spawn(opener, [modelsDirOverride], {detached: true, stdio: "ignore"});
 
             child.unref();
-            response.json({opened: true, modelsDir});
+            response.json({opened: true, modelsDir: modelsDirOverride});
         } catch (error) {
             response.status(500).json({error: error.message});
         }
@@ -288,8 +300,8 @@ export async function createServer({port = 7842, host = "0.0.0.0", openBrowser =
         engine,
         port: actualPort,
         url: `http://localhost:${actualPort}`,
-        modelsDir,
-        dataDir,
+        modelsDir: modelsDirOverride,
+        dataDir: dataDirOverride,
         async close() {
             for (const client of statusClients) {
                 try {

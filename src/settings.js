@@ -41,6 +41,8 @@ export class SettingsStore {
             this.settings.systemPrompt = findPersona(this.settings.personaId).prompt;
         }
 
+        await this.save({});
+
         return this.settings;
     }
 

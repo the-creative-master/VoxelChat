@@ -53,7 +53,7 @@ export class VoxelEngine extends EventEmitter {
                     path: this.activeModel.path,
                 }
                 : null,
-            contextSize: this.settings.contextSize,
+            contextSize: this.sequence?.contextSize ?? this.settings.contextSize,
         };
     }
 
@@ -166,6 +166,34 @@ export class VoxelEngine extends EventEmitter {
         this.setStatus("ready", "Ready to chat", 1);
 
         return this.status;
+    }
+
+    /**
+     * Rebuilds the context with a different size. The conversation history is
+     * replayed from the client on every request, so nothing is lost.
+     */
+    async setContextSize(contextSize) {
+        if (!this.model || this.busy) return false;
+
+        const maximum = this.activeModel?.contextLength ?? 8192;
+        const size = Math.max(512, Math.min(Number(contextSize) || LLAMA_CONTEXT_DEFAULT, maximum));
+
+        if (size === this.sequence?.contextSize) return false;
+
+        try {
+            await this.context?.dispose();
+        } catch {
+            /* best effort */
+        }
+
+        this.context = await this.model.createContext({contextSize: size});
+        this.sequence = this.context.getSequence();
+        this.session = new LlamaChatSession({
+            contextSequence: this.sequence,
+            systemPrompt: this.settings.systemPrompt,
+        });
+
+        return true;
     }
 
     /**

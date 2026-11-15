@@ -152,8 +152,12 @@ Write your own in **Settings → Custom system prompt**.
 * **Node.js 20 or newer** (`node --version`)
 * ~2 GB of free RAM for SmolLM2 1.7B (Q4_K_M)
 * ~1.2 GB of disk for the model
-* A GPU is used automatically when llama.cpp finds one; otherwise it runs on
-  the CPU.
+* A GPU is used automatically when llama.cpp finds one — Metal on Apple
+  silicon, CUDA or Vulkan on PC. Otherwise it runs happily on the CPU.
+
+Prebuilt llama.cpp binaries ship for every common platform (Linux, macOS,
+Windows – x64 and ARM64, with CUDA/Metal/Vulkan variants), so `npm install`
+never compiles anything on your machine.
 
 ---
 
