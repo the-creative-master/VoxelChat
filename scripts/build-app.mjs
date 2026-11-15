@@ -27,16 +27,50 @@ const NODE_VERSION = process.env.VOXELCHAT_NODE_VERSION ?? "22.22.3";
 
 /**
  * Every platform VoxelChat ships for: the llama.cpp binary package, the Node
- * runtime package and the name of the bundled runtime executable.
+ * runtime package, the fallback name in the Node binary archive and the name
+ * of the bundled runtime executable.
  */
 const PLATFORMS = {
-    "linux-x64": {llama: "linux-x64", node: "node-linux-x64", executable: "node"},
-    "linux-arm64": {llama: "linux-arm64", node: "node-linux-arm64", executable: "node"},
-    "darwin-x64": {llama: "mac-x64", node: "node-darwin-x64", executable: "node"},
-    "darwin-arm64": {llama: "mac-arm64-metal", node: "node-darwin-arm64", executable: "node"},
-    "win-x64": {llama: "win-x64", node: "node-win-x64", executable: "node.exe"},
-    "win-arm64": {llama: "win-arm64", node: "node-win-arm64", executable: "node.exe"},
+    "linux-x64": {
+        llama: "linux-x64",
+        node: "node-linux-x64",
+        archive: "node-v22.22.3-linux-x64",
+        executable: "node",
+    },
+    "linux-arm64": {
+        llama: "linux-arm64",
+        node: "node-linux-arm64",
+        archive: "node-v22.22.3-linux-arm64",
+        executable: "node",
+    },
+    "darwin-x64": {
+        llama: "mac-x64",
+        node: "node-darwin-x64",
+        archive: "node-v22.22.3-macos-x64",
+        executable: "node",
+    },
+    "darwin-arm64": {
+        llama: "mac-arm64-metal",
+        node: "node-darwin-arm64",
+        archive: "node-v22.22.3-macos-arm64",
+        executable: "node",
+    },
+    "win-x64": {
+        llama: "win-x64",
+        node: "node-win-x64",
+        archive: "node-v22.22.3-win-x64",
+        executable: "node.exe",
+    },
+    "win-arm64": {
+        llama: "win-arm64",
+        node: "node-win-arm64",
+        archive: "node-v22.22.3-win-arm64",
+        executable: "node.exe",
+    },
 };
+
+/** Where the Node binaries live when npm does not carry the platform. */
+const NODE_ARCHIVE_BASE = process.env.VOXELCHAT_NODE_ARCHIVE_BASE ?? "https://github.com/yao-pkg/pkg-fetch/releases/download/v3.6";
 
 function currentPlatform() {
     const arch = process.arch === "x64" ? "x64" : process.arch === "arm64" ? "arm64" : process.arch;
@@ -92,6 +126,16 @@ function run(command, args, options = {}) {
             }
         });
     });
+}
+
+async function exists(target) {
+    try {
+        await fs.access(target);
+
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 async function copyDirectory(source, destination) {
@@ -185,6 +229,79 @@ Where is my data?
   file. Delete that folder to start over.
 `;
 
+async function installRuntimeFromNpm(scratch, platform) {
+    const spec = PLATFORMS[platform];
+
+    try {
+        await run(
+            "npm",
+            ["install", "--no-audit", "--no-fund", "--silent", "--no-save", "--force", `${spec.node}@${NODE_VERSION}`],
+            {cwd: scratch},
+        );
+    } catch {
+        return false;
+    }
+
+    const source = path.join(scratch, "node_modules", spec.node, "bin", spec.executable);
+
+    if (!(await exists(source))) return false;
+
+    await fs.copyFile(source, path.join(scratch, "node-binary"));
+
+    return true;
+}
+
+async function installRuntimeFromArchive(scratch, platform) {
+    const spec = PLATFORMS[platform];
+    const url = `${NODE_ARCHIVE_BASE}/${spec.archive}`;
+
+    const response = await fetch(url, {redirect: "follow"});
+
+    if (!response.ok) {
+        throw new Error(`Could not download ${spec.archive}: HTTP ${response.status}`);
+    }
+
+    const archive = path.join(scratch, "node.tar.gz");
+
+    await fs.writeFile(archive, Buffer.from(await response.arrayBuffer()));
+
+    const checksumResponse = await fetch(`${url}.sha256sum`, {redirect: "follow"});
+
+    if (checksumResponse.ok) {
+        const expected = (await checksumResponse.text()).trim().split(/\s+/)[0];
+        const {createHash} = await import("node:crypto");
+        const {createReadStream} = await import("node:fs");
+        const digest = await new Promise((resolve, reject) => {
+            const hash = createHash("sha256");
+            const stream = createReadStream(archive);
+
+            stream.on("data", (chunk) => hash.update(chunk));
+            stream.on("error", reject);
+            stream.on("end", () => resolve(hash.digest("hex")));
+        });
+
+        if (expected && digest !== expected) {
+            throw new Error(`Checksum mismatch for ${spec.archive}`);
+        }
+    }
+
+    await run("tar", ["-xzf", archive, "-C", scratch]);
+
+    const entries = await fs.readdir(scratch, {recursive: true});
+
+    const match = entries.find(
+        (entry) => typeof entry === "string" && entry.endsWith(`/${spec.executable}`) && !entry.includes("/include/"),
+    );
+
+    if (!match) {
+        throw new Error(`The archive ${spec.archive} does not contain ${spec.executable}`);
+    }
+
+    await fs.copyFile(path.join(scratch, match), path.join(scratch, "node-binary"));
+
+    return true;
+}
+
 async function installRuntime(stage, platform) {
     const spec = PLATFORMS[platform];
     const runtimeDir = path.join(stage, "runtime");
@@ -196,15 +313,25 @@ async function installRuntime(stage, platform) {
     const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "voxelchat-node-"));
 
     try {
-        await run("npm", ["install", "--no-audit", "--no-fund", "--silent", "--no-save", `${spec.node}@${NODE_VERSION}`], {
-            cwd: scratch,
-        });
+        let installed = false;
 
-        const source = path.join(scratch, "node_modules", spec.node, "bin", spec.executable);
+        try {
+            installed = await installRuntimeFromNpm(scratch, platform);
+        } catch {
+            installed = false;
+        }
+
+        if (!installed) {
+            installed = await installRuntimeFromArchive(scratch, platform);
+        }
+
+        if (!installed) {
+            throw new Error(`No Node runtime available for ${platform}`);
+        }
+
         const target = path.join(runtimeDir, spec.executable);
 
-        await fs.mkdir(path.dirname(target), {recursive: true});
-        await fs.copyFile(source, target);
+        await fs.copyFile(path.join(scratch, "node-binary"), target);
         await fs.chmod(target, 0o755);
     } finally {
         await fs.rm(scratch, {recursive: true, force: true});
