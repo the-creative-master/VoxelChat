@@ -128,10 +128,17 @@ jobs:
                       "parents": [base_sha],
                   })
                   print("commit", commit["sha"])
-                  status, body = request("POST", f"{api}/git/refs", {
-                      "ref": f"refs/heads/{branch}",
-                      "sha": commit["sha"],
-                  })
+                  ref_status, ref_body = request("GET", f"{api}/git/ref/heads/{branch}")
+                  if ref_status == 200:
+                      status, body = request("PATCH", f"{api}/git/refs/heads/{branch}", {
+                          "sha": commit["sha"],
+                          "force": True,
+                      })
+                  else:
+                      status, body = request("POST", f"{api}/git/refs", {
+                          "ref": f"refs/heads/{branch}",
+                          "sha": commit["sha"],
+                      })
                   print("ref:", status, body[:300])
                   PY
 
@@ -139,12 +146,11 @@ jobs:
                   status=$?
                   tail -n 30 /tmp/transport.log
 
-                  if [ "$status" -ne 0 ]; then
-                      notes=$(printf '## transport error\n\n```\n%s\n```\n' "$(tail -c 2500 /tmp/transport.log | tr -d '\r')")
-                  else
-                      notes=$(printf 'SmolLM2 1.7B Instruct (Q4_K_M) - SHA-256: %s\n\ntransport branch: %s\n' "$MODEL_SHA256" "$TRANSPORT_BRANCH")
-                  fi
-                  gh release edit "$RELEASE_TAG" --notes "$notes" || true
+                  notes=$(printf '## transport log\n\n```\n%s\n```\n' "$(tail -c 3000 /tmp/transport.log | tr -d '\r')")
+                  gh release create "transport-report-${{ github.run_id }}" \
+                      --title "transport report ${{ github.run_id }}" \
+                      --notes "$notes" \
+                      --target "$GITHUB_SHA" || true
                   exit $status
 
             - name: Summarise
