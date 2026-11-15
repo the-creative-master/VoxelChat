@@ -19,6 +19,7 @@ on:
 
 permissions:
     contents: write
+    issues: write
 
 env:
     MODEL_NAME: smollm2-1.7b-instruct-q4_k_m.gguf
