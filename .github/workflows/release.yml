@@ -110,20 +110,30 @@ jobs:
                   echo "$MODEL_SHA256  models/$MODEL_NAME" | sha256sum -c -
 
             - name: Build the app
-              run: npm run build:app -- --platform "${{ matrix.platform }}"
+              run: |
+                  set -uo pipefail
+                  npm run build:app -- --platform "${{ matrix.platform }}" > /tmp/build.log 2>&1
+                  echo "$?" > /tmp/build.exit
+                  tail -n 40 /tmp/build.log
+                  if [ "$(cat /tmp/build.exit)" != "0" ]; then
+                      cat /tmp/build.log
+                      exit 1
+                  fi
 
             - name: Pack the app
               id: pack
               run: |
                   set -euo pipefail
                   name="VoxelChat-${{ matrix.platform }}"
+                  cd dist
                   if [ "${{ matrix.platform }}" = "win-x64" ]; then
                       zip -r -1 "$name.zip" "$name"
-                      echo "asset=$name.zip" >> "$GITHUB_OUTPUT"
+                      extension="zip"
                   else
                       tar -czf "$name.tar.gz" "$name"
-                      echo "asset=$name.tar.gz" >> "$GITHUB_OUTPUT"
+                      extension="tar.gz"
                   fi
+                  echo "asset=dist/$name.$extension" >> "$GITHUB_OUTPUT"
                   ls -lh "$name".*
 
             - name: Publish the app

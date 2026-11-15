@@ -128,6 +128,14 @@ function run(command, args, options = {}) {
     });
 }
 
+async function isFile(target) {
+    try {
+        return (await fs.stat(target)).isFile();
+    } catch {
+        return false;
+    }
+}
+
 async function exists(target) {
     try {
         await fs.access(target);
@@ -287,17 +295,26 @@ async function installRuntimeFromArchive(scratch, platform) {
 
     await run("tar", ["-xzf", archive, "-C", scratch]);
 
-    const entries = await fs.readdir(scratch, {recursive: true});
+    // The archive holds `bin/node` next to the C headers - take the binary.
+    const preferred = path.join(scratch, "bin", spec.executable);
+
+    if (await isFile(preferred)) {
+        await fs.copyFile(preferred, path.join(scratch, "node-binary"));
+
+        return true;
+    }
+
+    const entries = await fs.readdir(scratch, {recursive: true, withFileTypes: true});
 
     const match = entries.find(
-        (entry) => typeof entry === "string" && entry.endsWith(`/${spec.executable}`) && !entry.includes("/include/"),
+        (entry) => entry.isFile() && entry.name === spec.executable && !entry.parentPath.includes("include"),
     );
 
     if (!match) {
         throw new Error(`The archive ${spec.archive} does not contain ${spec.executable}`);
     }
 
-    await fs.copyFile(path.join(scratch, match), path.join(scratch, "node-binary"));
+    await fs.copyFile(path.join(match.parentPath, match.name), path.join(scratch, "node-binary"));
 
     return true;
 }
