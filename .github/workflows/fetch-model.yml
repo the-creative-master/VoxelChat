@@ -45,22 +45,41 @@ jobs:
                   echo "$MODEL_SHA256  $MODEL_NAME" | sha256sum -c -
 
             - name: Publish chunks on a temporary branch (transport)
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
-                  set -euo pipefail
-                  mkdir -p chunks
-                  split -b 90M -d -a 2 "$MODEL_NAME" chunks/part-
-                  ls -lh chunks | head
-
-                  cd chunks
-                  git init -q .
-                  git config user.name "voxelchat-bot"
-                  git config user.email "voxelchat-bot@users.noreply.github.com"
-                  git add .
-                  git commit -q -m "SmolLM2 1.7B Instruct Q4_K_M (chunked transport)"
-                  git push --force \
-                    "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-                    "HEAD:refs/heads/model-cache"
-                  echo "chunks pushed" >> "$GITHUB_STEP_SUMMARY"
+                  set -uo pipefail
+                  {
+                    echo "### chunk transport log"
+                    echo '```'
+                    set -x
+                    mkdir -p chunks
+                    split -b 90M -d -a 2 "$MODEL_NAME" chunks/part-
+                    ls -l chunks
+                    cd chunks
+                    git init -q .
+                    git config user.name "voxelchat-bot"
+                    git config user.email "voxelchat-bot@users.noreply.github.com"
+                    git add .
+                    git commit -q -m "SmolLM2 1.7B Instruct Q4_K_M (chunked transport)"
+                    git push --force \
+                      "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+                      "HEAD:refs/heads/model-cache"
+                    status=$?
+                    set +x
+                    echo "push exit status: $status"
+                    echo '```'
+                  } 2>&1 | tee /tmp/chunks.log
+                  status=${PIPESTATUS[0]}
+                  {
+                    echo "### chunk transport log"
+                    echo '```'
+                    cat /tmp/chunks.log
+                    echo '```'
+                  } >> "$GITHUB_STEP_SUMMARY"
+                  gh issue create --title "VoxelChat model-cache transport log" \
+                      --body-file /tmp/chunks.log 2>&1 || true
+                  exit $status
 
             - name: Publish as a release asset
               continue-on-error: true

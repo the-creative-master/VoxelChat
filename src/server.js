@@ -170,7 +170,7 @@ export async function createServer({
     });
 
     app.post("/api/settings", async (request, response) => {
-        const allowed = ["personaId", "systemPrompt", "temperature", "topP", "maxTokens", "contextSize", "gpu", "preferredModelId", "theme"];
+        const allowed = ["personaId", "systemPrompt", "temperature", "topP", "maxTokens", "contextSize", "threads", "gpu", "preferredModelId", "theme"];
         const patch = {};
 
         for (const key of allowed) {

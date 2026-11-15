@@ -7,11 +7,31 @@
  *  - swapModel() : hot-swaps the active GGUF without restarting the app
  */
 import {EventEmitter} from "node:events";
+import os from "node:os";
 import {getLlama, LlamaChatSession} from "node-llama-cpp";
 
 import {chooseModel, downloadCatalogModel, listLocalModels, MODEL_CATALOG} from "./model-store.js";
 
 const LLAMA_CONTEXT_DEFAULT = 4096;
+
+/**
+ * How many CPU threads llama.cpp should use.
+ *
+ * llama.cpp's own default is based on the raw hardware thread count, which is
+ * wrong inside containers and VMs where the process is pinned to a fraction of
+ * the host's CPUs: the extra threads spin-wait on each other and generation
+ * collapses (we measured 0.16 tok/s instead of 71 tok/s on a 2-core slice).
+ * `os.availableParallelism()` respects cgroup/affinity limits, so we cap it.
+ */
+export function resolveThreadCount(override) {
+    if (Number.isFinite(override) && override > 0) {
+        return Math.max(1, Math.min(Math.floor(override), 64));
+    }
+
+    const available = os.availableParallelism?.() ?? os.cpus().length ?? 4;
+
+    return Math.max(1, Math.min(available, 8));
+}
 
 export class VoxelEngine extends EventEmitter {
     constructor({modelsDir, settings}) {
@@ -31,6 +51,7 @@ export class VoxelEngine extends EventEmitter {
         this.stage = "Waiting to start";
         this.progress = 0;
         this.error = null;
+        this.threadCount = resolveThreadCount(settings?.threads);
     }
 
     get status() {
@@ -54,6 +75,7 @@ export class VoxelEngine extends EventEmitter {
                 }
                 : null,
             contextSize: this.sequence?.contextSize ?? this.settings.contextSize,
+            threads: this.threadCount,
         };
     }
 
@@ -155,7 +177,7 @@ export class VoxelEngine extends EventEmitter {
 
         const contextSize = Math.max(512, Math.min(this.settings.contextSize || LLAMA_CONTEXT_DEFAULT, modelDescriptor.contextLength ?? 8192));
 
-        this.context = await this.model.createContext({contextSize});
+        this.context = await this.model.createContext({contextSize, threads: this.threadCount});
         this.sequence = this.context.getSequence();
         this.session = new LlamaChatSession({
             contextSequence: this.sequence,
@@ -186,7 +208,7 @@ export class VoxelEngine extends EventEmitter {
             /* best effort */
         }
 
-        this.context = await this.model.createContext({contextSize: size});
+        this.context = await this.model.createContext({contextSize: size, threads: this.threadCount});
         this.sequence = this.context.getSequence();
         this.session = new LlamaChatSession({
             contextSequence: this.sequence,

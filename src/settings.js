@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS = {
     topP: 0.9,
     maxTokens: 512,
     contextSize: 4096,
+    threads: 0,
     gpu: "auto",
     preferredModelId: null,
     theme: "dark",
