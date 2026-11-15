@@ -45,63 +45,34 @@ jobs:
                   set -euo pipefail
                   echo "$MODEL_SHA256  $MODEL_NAME" | sha256sum -c -
 
-            - name: Publish chunks on a temporary branch (transport)
+            - name: Split into chunks
+              run: |
+                  set -uo pipefail
+                  rm -rf chunks
+                  mkdir -p chunks
+                  split -b 90M -d -a 2 "$MODEL_NAME" chunks/part-
+                  ls -l chunks | sed 's/^/    /'
+                  echo "chunk count: $(ls chunks | wc -l)"
+
+            - name: Push chunks to the transport branch
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   set -uo pipefail
-                  {
-                    echo "### chunk transport log"
-                    echo '```'
-                    set -x
-                    mkdir -p chunks
-                    split -b 90M -d -a 2 "$MODEL_NAME" chunks/part-
-                    ls -l chunks
-                    cd chunks
-                    git init -q .
-                    git config user.name "voxelchat-bot"
-                    git config user.email "voxelchat-bot@users.noreply.github.com"
-                    git add .
-                    git commit -q -m "SmolLM2 1.7B Instruct Q4_K_M (chunked transport)"
-                    git push --force \
-                      "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-                      "HEAD:refs/heads/model-cache"
-                    status=$?
-                    set +x
-                    echo "push exit status: $status"
-                    echo '```'
-                  } 2>&1 | tee /tmp/chunks.log
-                  status=${PIPESTATUS[0]}
-                  {
-                    echo "### chunk log"
-                    echo '```'
-                    cat /tmp/chunks.log
-                    echo '```'
-                  } >> "$GITHUB_STEP_SUMMARY"
-
-                  # Park the log in the repository so it can be read back through
-                  # the GitHub API (the Actions log viewer is not always handy).
-                  {
-                    echo "## chunk transport log"
-                    echo
-                    echo '```'
-                    cat /tmp/chunks.log
-                    echo '```'
-                  } > /tmp/log.md
-
-                  base64 -w0 /tmp/log.md > /tmp/log.b64
-                  head_sha=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-                    "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
-                    | python3 -c "import json,sys; print(json.load(sys.stdin)['object']['sha'])")
-                  curl -s -X POST -H "Authorization: token ${GITHUB_TOKEN}" \
-                    -H "Accept: application/vnd.github+json" \
-                    "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/refs" \
-                    -d "{\"ref\":\"refs/heads/model-cache-log\",\"sha\":\"$head_sha\"}" > /dev/null || true
-                  curl -s -X PUT -H "Authorization: token ${GITHUB_TOKEN}" \
-                    -H "Accept: application/vnd.github+json" \
-                    "https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/model-transport-log.md" \
-                    -d "{\"message\":\"transport log\",\"content\":\"$(cat /tmp/log.b64)\",\"branch\":\"model-cache-log\"}" \
-                    | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('content',{}).get('html_url') or d.get('message'))"
+                  cd chunks
+                  git init -q .
+                  git config user.name "voxelchat-bot"
+                  git config user.email "voxelchat-bot@users.noreply.github.com"
+                  git add -A
+                  git commit -q -m "SmolLM2 1.7B Instruct Q4_K_M (chunked transport)" || true
+                  git push --force \
+                    "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+                    "HEAD:refs/heads/model-cache" > /tmp/push.log 2>&1
+                  status=$?
+                  tail -n 25 /tmp/push.log | while IFS= read -r line; do
+                      echo "::error title=transport::$(echo "$line" | tr -d '\r' | cut -c1-200)"
+                  done >> "$GITHUB_STUB"
+                  cat /tmp/push.log
                   exit $status
 
             - name: Publish as a release asset
@@ -110,17 +81,11 @@ jobs:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   set -uo pipefail
-                  {
-                    echo "### Release asset"
-                    echo ""
-                    echo '```'
-                    gh release view "$RELEASE_TAG" 2>&1 || \
-                        gh release create "$RELEASE_TAG" \
-                            --title "SmolLM2 1.7B Instruct (Q4_K_M)" \
-                            --notes "Model weights for VoxelChat. SHA-256: $MODEL_SHA256" 2>&1
-                    gh release upload "$RELEASE_TAG" "$MODEL_NAME" --clobber 2>&1
-                    echo '```'
-                  } | tee -a "$GITHUB_STEP_SUMMARY"
+                  gh release view "$RELEASE_TAG" >/dev/null 2>&1 || \
+                      gh release create "$RELEASE_TAG" \
+                          --title "SmolLM2 1.7B Instruct (Q4_K_M)" \
+                          --notes "Model weights for VoxelChat. SHA-256: $MODEL_SHA256"
+                  gh release upload "$RELEASE_TAG" "$MODEL_NAME" --clobber
                   exit 0
 
             - name: Summarise
@@ -131,5 +96,4 @@ jobs:
                     echo "- file: \`$MODEL_NAME\`"
                     echo "- sha256: \`$MODEL_SHA256\`"
                     echo "- release asset: \`https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$MODEL_NAME\`"
-                    echo "- transport branch: \`model-cache\`"
                   } >> "$GITHUB_STEP_SUMMARY"
