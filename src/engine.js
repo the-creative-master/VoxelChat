@@ -10,7 +10,7 @@ import {EventEmitter} from "node:events";
 import os from "node:os";
 import {getLlama, LlamaChatSession} from "node-llama-cpp";
 
-import {chooseModel, downloadCatalogModel, listLocalModels, MODEL_CATALOG} from "./model-store.js";
+import {chooseModel, flagshipModel, listLocalModels, MODEL_CATALOG} from "./model-store.js";
 
 const LLAMA_CONTEXT_DEFAULT = 4096;
 
@@ -97,7 +97,11 @@ export class VoxelEngine extends EventEmitter {
     }
 
     /**
-     * Boots the engine: makes sure a model exists, then loads it.
+     * Boots the engine: picks the model that already ships with VoxelChat and
+     * loads it.
+     *
+     * Nothing is downloaded here. The weights live in the model folder that
+     * travels with the app, so the normal path is: open, wait a moment, chat.
      */
     async boot() {
         try {
@@ -105,48 +109,15 @@ export class VoxelEngine extends EventEmitter {
             this.setStatus("booting", "Starting llama.cpp", 0);
 
             const localModels = await listLocalModels(this.modelsDir);
-            let target = chooseModel(localModels, this.settings.preferredModelId);
+            const target = chooseModel(localModels, this.settings.preferredModelId);
 
             if (!target) {
-                const catalogEntry = MODEL_CATALOG.find((model) => model.recommended) ?? MODEL_CATALOG[0];
+                const flagship = flagshipModel();
 
-                this.setStatus("downloading", `Preparing ${catalogEntry.shortLabel} — first run only`, 0);
-                this.emit("download", {
-                    phase: "starting",
-                    label: catalogEntry.label,
-                    fileName: catalogEntry.fileName,
-                    totalBytes: catalogEntry.approxBytes,
-                    downloadedBytes: 0,
-                    ratio: 0,
-                });
-
-                try {
-                    await downloadCatalogModel(catalogEntry, {
-                        modelsDir: this.modelsDir,
-                        signal: undefined,
-                        log: (message) => this.emit("log", message),
-                        onProgress: (progress) => {
-                            this.setStatus(
-                                "downloading",
-                                `Preparing ${catalogEntry.shortLabel} — ${Math.round(progress.ratio * 100)}%`,
-                                progress.ratio,
-                            );
-                            this.emit("download", {phase: "progress", ...progress, label: catalogEntry.label});
-                        },
-                    });
-                } catch (error) {
-                    this.emit("download", {phase: "failed", label: catalogEntry.label, message: error.message});
-                    throw new Error(
-                        `Could not fetch ${catalogEntry.label}. VoxelChat needs the model once – check your connection, or drop any .gguf file into the models folder. (${error.message})`,
-                    );
-                }
-
-                this.emit("download", {phase: "done", label: catalogEntry.label});
-                target = (await listLocalModels(this.modelsDir)).find((model) => model.id === catalogEntry.id) ?? null;
-
-                if (!target) {
-                    throw new Error("The model could not be prepared.");
-                }
+                throw new Error(
+                    `VoxelChat is missing its bundled model (${flagship.fileName}). ` +
+                        `Put the file in the models folder next to VoxelChat and start it again.`,
+                );
             }
 
             await this.loadModel(target);

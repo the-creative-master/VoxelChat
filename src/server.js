@@ -53,7 +53,6 @@ export async function createServer({
     };
 
     engine.on("status", broadcast);
-    engine.on("download", (payload) => broadcast({...engine.status, download: payload}));
     engine.on("log", (message) => console.log(`  ${message}`));
 
     app.get("/api/status", (_request, response) => {
@@ -136,32 +135,6 @@ export async function createServer({
             response.json(engine.status);
         } catch (error) {
             response.status(500).json({error: error.message});
-        }
-    });
-
-    app.post("/api/models/download", async (request, response) => {
-        const {modelId} = request.body ?? {};
-        const catalogEntry = MODEL_CATALOG.find((entry) => entry.id === modelId);
-
-        if (!catalogEntry) {
-            response.status(404).json({error: "Unknown model."});
-            return;
-        }
-
-        response.json({started: true, label: catalogEntry.label});
-
-        try {
-            const {downloadCatalogModel} = await import("./model-store.js");
-
-            await downloadCatalogModel(catalogEntry, {
-                modelsDir: modelsDirOverride,
-                log: (message) => console.log(`  ${message}`),
-                onProgress: (progress) => broadcast({...engine.status, download: {phase: "progress", label: catalogEntry.label, ...progress}}),
-            });
-
-            broadcast({...engine.status, download: {phase: "done", label: catalogEntry.label}});
-        } catch (error) {
-            broadcast({...engine.status, download: {phase: "failed", label: catalogEntry.label, message: error.message}});
         }
     });
 

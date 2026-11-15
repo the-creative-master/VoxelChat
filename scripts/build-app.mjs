@@ -1,0 +1,332 @@
+#!/usr/bin/env node
+/**
+ * Builds a self-contained VoxelChat app folder.
+ *
+ * The result is a folder that runs with a double-click: it contains the app
+ * source, the prebuilt llama.cpp binaries, the model weights and its own Node
+ * runtime. No `npm install`, no commands, no configuration – just open it and
+ * start chatting.
+ *
+ *   npm run build:app                        # current platform
+ *   npm run build:app -- --platform darwin-arm64
+ *   npm run build:app -- --platform all
+ */
+import {spawn} from "node:child_process";
+import fs from "node:fs/promises";
+import {constants as fsConstants} from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import {fileURLToPath} from "node:url";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(here, "..");
+const distDir = path.join(projectRoot, "dist");
+
+const LLAMA_CPP_VERSION = "3.22.3";
+const NODE_VERSION = process.env.VOXELCHAT_NODE_VERSION ?? "22.22.3";
+
+/**
+ * Every platform VoxelChat ships for: the llama.cpp binary package, the Node
+ * runtime package and the name of the bundled runtime executable.
+ */
+const PLATFORMS = {
+    "linux-x64": {llama: "linux-x64", node: "node-linux-x64", executable: "node"},
+    "linux-arm64": {llama: "linux-arm64", node: "node-linux-arm64", executable: "node"},
+    "darwin-x64": {llama: "mac-x64", node: "node-darwin-x64", executable: "node"},
+    "darwin-arm64": {llama: "mac-arm64-metal", node: "node-darwin-arm64", executable: "node"},
+    "win-x64": {llama: "win-x64", node: "node-win-x64", executable: "node.exe"},
+    "win-arm64": {llama: "win-arm64", node: "node-win-arm64", executable: "node.exe"},
+};
+
+function currentPlatform() {
+    const arch = process.arch === "x64" ? "x64" : process.arch === "arm64" ? "arm64" : process.arch;
+
+    return `${process.platform}-${arch}`;
+}
+
+function parseArguments(argv) {
+    const options = {platforms: [], includeModel: true};
+
+    for (let index = 0; index < argv.length; index += 1) {
+        const argument = argv[index];
+
+        if (argument === "--platform" || argument === "-p") {
+            options.platforms.push(argv[index + 1]);
+            index += 1;
+        } else if (argument.startsWith("--platform=")) {
+            options.platforms.push(argument.slice("--platform=".length));
+        } else if (argument === "--no-model") {
+            options.includeModel = false;
+        }
+    }
+
+    if (options.platforms.length === 0) {
+        options.platforms.push(currentPlatform());
+    }
+
+    if (options.platforms.includes("all")) {
+        options.platforms = Object.keys(PLATFORMS);
+    }
+
+    for (const platform of options.platforms) {
+        if (!PLATFORMS[platform]) {
+            throw new Error(
+                `Unknown platform "${platform}". Supported: ${Object.keys(PLATFORMS).join(", ")} (or "all").`,
+            );
+        }
+    }
+
+    return options;
+}
+
+function run(command, args, options = {}) {
+    return new Promise((resolve, reject) => {
+        const child = spawn(command, args, {stdio: "inherit", ...options});
+
+        child.on("error", reject);
+        child.on("exit", (code) => {
+            if (code === 0) {
+                resolve();
+            } else {
+                reject(new Error(`${command} ${args.join(" ")} exited with code ${code}`));
+            }
+        });
+    });
+}
+
+async function copyDirectory(source, destination) {
+    await fs.mkdir(destination, {recursive: true});
+    await fs.cp(source, destination, {recursive: true});
+}
+
+async function copyFile(source, destination) {
+    await fs.mkdir(path.dirname(destination), {recursive: true});
+
+    try {
+        await fs.copyFile(source, destination, fsConstants.COPYFILE_FICLONE);
+    } catch {
+        await fs.copyFile(source, destination);
+    }
+}
+
+async function directorySize(directory) {
+    let total = 0;
+
+    const walk = async (current) => {
+        const entries = await fs.readdir(current, {withFileTypes: true});
+
+        for (const entry of entries) {
+            const full = path.join(current, entry.name);
+
+            if (entry.isDirectory()) {
+                await walk(full);
+            } else if (entry.isFile()) {
+                total += (await fs.stat(full)).size;
+            }
+        }
+    };
+
+    await walk(directory);
+
+    return total;
+}
+
+function formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+
+    const units = ["B", "KB", "MB", "GB"];
+    const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+
+    return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+const SHELL_LAUNCHER = `#!/usr/bin/env bash
+# VoxelChat – double-click this file (or run it) and your browser opens.
+set -euo pipefail
+cd "$(dirname "$0")"
+export VOXELCHAT_BUNDLED=1
+exec "./runtime/node" "./src/launcher.js" "$@"
+`;
+
+const WINDOWS_LAUNCHER = `@echo off
+rem VoxelChat - double-click this file and your browser opens.
+cd /d "%~dp0"
+set VOXELCHAT_BUNDLED=1
+".\\runtime\\node.exe" ".\\src\\launcher.js" %*
+if errorlevel 1 pause
+`;
+
+const README = `VoxelChat
+==========
+
+A local AI chat app that runs entirely on this computer.
+
+  * SmolLM2 1.7B Instruct (Q4_K_M) is already inside this folder – in models/
+  * llama.cpp runs on the CPU (and on a GPU when one is available)
+  * No account, no API key, no cloud service, no internet connection needed
+
+How to start
+------------
+
+  macOS / Linux   double-click "VoxelChat"
+  Windows         double-click "VoxelChat.cmd"
+
+Your browser opens automatically at http://localhost:7842.
+
+How to stop
+-----------
+
+  Close the terminal window, or press Ctrl+C in it.
+
+Where is my data?
+-----------------
+
+  Settings and conversation history live in the "data" folder next to this
+  file. Delete that folder to start over.
+`;
+
+async function installRuntime(stage, platform) {
+    const spec = PLATFORMS[platform];
+    const runtimeDir = path.join(stage, "runtime");
+
+    await fs.mkdir(runtimeDir, {recursive: true});
+
+    console.log(`  → fetching the Node ${NODE_VERSION} runtime for ${platform}`);
+
+    const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "voxelchat-node-"));
+
+    try {
+        await run("npm", ["install", "--no-audit", "--no-fund", "--silent", "--no-save", `${spec.node}@${NODE_VERSION}`], {
+            cwd: scratch,
+        });
+
+        const source = path.join(scratch, "node_modules", spec.node, "bin", spec.executable);
+        const target = path.join(runtimeDir, spec.executable);
+
+        await fs.mkdir(path.dirname(target), {recursive: true});
+        await fs.copyFile(source, target);
+        await fs.chmod(target, 0o755);
+    } finally {
+        await fs.rm(scratch, {recursive: true, force: true});
+    }
+}
+
+async function installDependencies(stage, platform) {
+    const spec = PLATFORMS[platform];
+
+    const manifest = {
+        name: "voxelchat",
+        version: "2.0.0",
+        private: true,
+        type: "module",
+        description: "VoxelChat – a local AI chat app with SmolLM2 1.7B",
+        license: "MIT",
+        dependencies: {
+            express: "^4.21.2",
+            "node-llama-cpp": `^${LLAMA_CPP_VERSION}`,
+            [`@node-llama-cpp/${spec.llama}`]: LLAMA_CPP_VERSION,
+        },
+    };
+
+    await fs.writeFile(path.join(stage, "package.json"), `${JSON.stringify(manifest, null, 4)}\n`);
+
+    console.log(`  → installing the app dependencies for ${platform}`);
+
+    await run(
+        "npm",
+        [
+            "install",
+            "--omit=dev",
+            "--ignore-scripts",
+            "--no-audit",
+            "--no-fund",
+            "--include=optional",
+            "--force",
+        ],
+        {cwd: stage},
+    );
+
+    // npm happily installs every llama.cpp flavour. The app only ever loads
+    // the one that matches the machine it is running on, so the rest is dead
+    // weight in the download.
+    const llamaPackages = path.join(stage, "node_modules", "@node-llama-cpp");
+    const installed = await fs.readdir(llamaPackages).catch(() => []);
+
+    for (const name of installed) {
+        if (name === spec.llama) continue;
+
+        await fs.rm(path.join(llamaPackages, name), {recursive: true, force: true});
+    }
+}
+
+async function buildPlatform(platform, {includeModel}) {
+    const spec = PLATFORMS[platform];
+    const stage = path.join(distDir, `VoxelChat-${platform}`);
+
+    console.log(`\n▸ Building VoxelChat for ${platform}`);
+
+    await fs.rm(stage, {recursive: true, force: true});
+    await fs.mkdir(stage, {recursive: true});
+
+    await copyDirectory(path.join(projectRoot, "src"), path.join(stage, "src"));
+    await copyDirectory(path.join(projectRoot, "public"), path.join(stage, "public"));
+
+    await installDependencies(stage, platform);
+    await installRuntime(stage, platform);
+
+    // The weights travel with the app – this is the whole point.
+    const modelsDir = path.join(stage, "models");
+
+    await fs.mkdir(modelsDir, {recursive: true});
+
+    if (includeModel) {
+        const models = await fs.readdir(path.join(projectRoot, "models")).catch(() => []);
+
+        for (const entry of models) {
+            if (!entry.toLowerCase().endsWith(".gguf")) continue;
+
+            console.log(`  → bundling ${entry}`);
+
+            await copyFile(path.join(projectRoot, "models", entry), path.join(modelsDir, entry));
+        }
+    }
+
+    await fs.writeFile(path.join(stage, "VoxelChat"), SHELL_LAUNCHER);
+    await fs.chmod(path.join(stage, "VoxelChat"), 0o755);
+    await fs.writeFile(path.join(stage, "VoxelChat.cmd"), WINDOWS_LAUNCHER);
+    await fs.writeFile(path.join(stage, "README.txt"), README);
+
+    const size = await directorySize(stage);
+
+    console.log(`  ✔ ${stage} (${formatBytes(size)})`);
+
+    return {platform, stage, size};
+}
+
+async function main() {
+    const options = parseArguments(process.argv.slice(2));
+
+    console.log("▌  VoxelChat app builder");
+    console.log(`   node ${process.version} on ${currentPlatform()}`);
+
+    await fs.mkdir(distDir, {recursive: true});
+
+    const results = [];
+
+    for (const platform of options.platforms) {
+        results.push(await buildPlatform(platform, options));
+    }
+
+    console.log("\n✔ Done:");
+
+    for (const result of results) {
+        console.log(`   ${result.stage} – ${formatBytes(result.size)}`);
+    }
+
+    console.log("");
+}
+
+main().catch((error) => {
+    console.error(`\n✖ ${error.message}\n`);
+    process.exit(1);
+});

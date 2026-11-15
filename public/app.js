@@ -288,26 +288,6 @@ function applyStatus(status) {
         return;
     }
 
-    if (phase === "downloading") {
-        const download = status.download;
-
-        if (download?.phase === "progress") {
-            const percent = Math.round((download.ratio ?? 0) * 100);
-
-            setBootStage(`Preparing ${download.label} — ${percent}%`);
-            setBootProgress(download.ratio ?? 0);
-            setBootDetail(
-                `${formatBytes(download.downloadedBytes ?? 0)} of ${formatBytes(download.totalBytes ?? 0)} · one-time setup`,
-            );
-        } else {
-            setBootStage(`Preparing ${download?.label ?? "the model"} — first run only`);
-            setBootProgress(0);
-            setBootDetail("Downloading once, then it lives in your models folder forever.");
-        }
-
-        return;
-    }
-
     if (phase === "loading") {
         setBootStage(status.stage ?? "Loading the model…");
         setBootProgress(status.progress ?? 0);
@@ -796,43 +776,6 @@ function renderModels() {
         merged.set(entry.id, {...entry, cached: false});
     }
 
-    // A friendly nudge towards the flagship model, without ever forcing a
-    // 1.1 GB download on someone who just wants to try VoxelChat out.
-    const flagship = (state.models.catalog ?? []).find((entry) => entry.recommended);
-
-    if (flagship && !flagship.cached && state.models.active !== flagship.id) {
-        const card = document.createElement("div");
-        card.className = "model-item model-item--flagship";
-
-        const body = document.createElement("div");
-        body.className = "model-item__body";
-        body.innerHTML = `<strong>⭐ ${escapeHtml(flagship.label)}</strong><small>Not cached yet · ${escapeHtml(
-            flagship.sizeLabel,
-        )} · noticeably better answers</small>`;
-
-        const actions = document.createElement("div");
-        actions.className = "model-item__actions";
-
-        const download = document.createElement("button");
-        download.className = "btn";
-        download.style.padding = "6px 12px";
-        download.style.fontSize = "12.5px";
-        download.textContent = "Get it";
-        download.addEventListener("click", async () => {
-            download.disabled = true;
-            download.textContent = "Downloading…";
-            await fetch("/api/models/download", {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({modelId: flagship.id}),
-            });
-        });
-
-        actions.append(download);
-        card.append(body, actions);
-        list.append(card);
-    }
-
     for (const entry of merged.values()) {
         const item = document.createElement("div");
         item.className = `model-item${entry.id === state.models.active ? " is-active" : ""}`;
@@ -869,21 +812,10 @@ function renderModels() {
             });
             actions.append(use);
         } else {
-            const download = document.createElement("button");
-            download.className = "btn";
-            download.style.padding = "6px 12px";
-            download.style.fontSize = "12.5px";
-            download.textContent = "Get it";
-            download.addEventListener("click", async () => {
-                download.disabled = true;
-                download.textContent = "Downloading…";
-                await fetch("/api/models/download", {
-                    method: "POST",
-                    headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({modelId: entry.id}),
-                });
-            });
-            actions.append(download);
+            const badge = document.createElement("span");
+            badge.className = "badge";
+            badge.textContent = "not installed";
+            actions.append(badge);
         }
 
         item.append(body, actions);

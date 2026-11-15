@@ -45,6 +45,11 @@ function ensureDependencies() {
         return Promise.resolve();
     }
 
+    // The packaged app ships with its dependencies – never run npm there.
+    if (process.env.VOXELCHAT_BUNDLED === "1") {
+        return Promise.reject(new Error("The VoxelChat app folder is incomplete – the llama.cpp engine is missing."));
+    }
+
     console.log("  " + paint("yellow", "◌") + " First run: installing the engine (one time, ~30 seconds)…");
 
     return new Promise((resolve, reject) => {
@@ -131,28 +136,10 @@ async function main() {
         }
     });
 
-    engine.on("download", (payload) => {
-        if (payload.phase === "progress") {
-            const percent = Math.round((payload.ratio ?? 0) * 100);
-
-            process.stdout.write(`\r  ${paint("cyan", "↓")}  ${payload.label} ${percent}% (${formatBytes(payload.downloadedBytes ?? 0)} / ${formatBytes(payload.totalBytes ?? 0)})   `);
-        }
-
-        if (payload.phase === "done") {
-            process.stdout.write("\r  " + " ".repeat(72) + "\r");
-            console.log(`  ${paint("green", "✔")}  ${payload.label} cached – no more downloads.`);
-        }
-
-        if (payload.phase === "failed") {
-            process.stdout.write("\r  " + " ".repeat(72) + "\r");
-            console.error(`  ${paint("red", "✖")}  Could not prepare ${payload.label}: ${payload.message}`);
-        }
-    });
-
     engine.boot().catch((error) => {
         console.error(`  ${paint("red", "✖")}  ${error.message}`);
         console.log("");
-        console.log("  " + paint("dim", "VoxelChat will keep running – drop any .gguf file into the models folder and press Retry."));
+        console.log("  " + paint("dim", "VoxelChat keeps running – the model ships inside the app folder, so restore it and press Retry."));
         console.log("");
     });
 

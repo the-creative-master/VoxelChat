@@ -1,19 +1,26 @@
 /**
  * VoxelChat model store.
  *
- * VoxelChat keeps every GGUF it uses inside a single folder (`models/`).
- * The store knows which models VoxelChat can run, which ones are already on
- * disk ("pre-cached"), and how to fetch a missing one without ever asking the
- * user to run a command.
+ * VoxelChat ships with its model already inside the app. The GGUFs live in the
+ * `models/` folder that travels with the application bundle, so the store only
+ * ever *looks* at what is already on disk – it never reaches for the network
+ * while the app is running.
+ *
+ * The one and only way a model gets into the store is
+ * `npm run prepare-model`, which is a build-time step for developers and CI.
+ * End users never run it: the model is part of the download.
  */
 import {createHash} from "node:crypto";
-import {createReadStream, createWriteStream, existsSync, statSync} from "node:fs";
+import {createReadStream, existsSync, statSync} from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import {Readable, Transform} from "node:stream";
-import {pipeline} from "node:stream/promises";
 
-/** Official SmolLM2 GGUF releases (Apache-2.0). */
+/**
+ * The models VoxelChat can ship with.
+ *
+ * `bundled: true` means the weights travel inside the application – there is
+ * nothing to download and nothing to configure.
+ */
 export const MODEL_CATALOG = [
     {
         id: "smollm2-1.7b-instruct-q4_k_m",
@@ -22,15 +29,11 @@ export const MODEL_CATALOG = [
         params: "1.7B",
         quant: "Q4_K_M",
         fileName: "smollm2-1.7b-instruct-q4_k_m.gguf",
-        approxBytes: 1_100_000_000,
+        approxBytes: 1_055_609_536,
         contextLength: 8192,
         recommended: true,
+        bundled: true,
         sha256: "decd2598bc2c8ed08c19adc3c8fdd461ee19ed5708679d1c54ef54a5a30d4f33",
-        mirrors: [
-            "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/2d4a76a30b4af41ecd395c35725ac11688d4cfe4/smollm2-1.7b-instruct-q4_k_m.gguf",
-            "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf",
-            "https://hf-mirror.com/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf",
-        ],
     },
     {
         id: "smollm2-360m-instruct-q8_0",
@@ -41,11 +44,9 @@ export const MODEL_CATALOG = [
         fileName: "smollm2-360m-instruct-q8_0.gguf",
         approxBytes: 386_000_000,
         contextLength: 8192,
+        recommended: false,
+        bundled: false,
         sha256: null,
-        mirrors: [
-            "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smollm2-360m-instruct-q8_0.gguf",
-            "https://hf-mirror.com/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smollm2-360m-instruct-q8_0.gguf",
-        ],
     },
     {
         id: "smollm2-135m-instruct-q4_k_s",
@@ -56,11 +57,9 @@ export const MODEL_CATALOG = [
         fileName: "smollm2-135m-instruct-q4_k_s.gguf",
         approxBytes: 102_000_000,
         contextLength: 8192,
+        recommended: false,
+        bundled: false,
         sha256: null,
-        mirrors: [
-            "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct-GGUF/resolve/main/smollm2-135m-instruct-q4_k_s.gguf",
-            "https://hf-mirror.com/HuggingFaceTB/SmolLM2-135M-Instruct-GGUF/resolve/main/smollm2-135m-instruct-q4_k_s.gguf",
-        ],
     },
 ];
 
@@ -76,7 +75,7 @@ export function formatBytes(bytes) {
     return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
-async function sha256OfFile(filePath) {
+export async function sha256OfFile(filePath) {
     return new Promise((resolve, reject) => {
         const hash = createHash("sha256");
         const stream = createReadStream(filePath);
@@ -87,7 +86,7 @@ async function sha256OfFile(filePath) {
     });
 }
 
-async function looksLikeGguf(filePath) {
+export async function looksLikeGguf(filePath) {
     const handle = await fs.open(filePath, "r");
 
     try {
@@ -136,6 +135,7 @@ export async function listLocalModels(modelsDir) {
             quant: catalogEntry?.quant ?? detectQuant(entry.name) ?? "GGUF",
             contextLength: catalogEntry?.contextLength ?? 8192,
             recommended: catalogEntry?.recommended ?? false,
+            bundled: catalogEntry?.bundled ?? false,
             known: Boolean(catalogEntry),
         });
     }
@@ -181,8 +181,8 @@ function rankModel(model) {
  *
  * Priority:
  *  1. A model the user explicitly selected.
- *  2. The biggest SmolLM2 that is already cached on disk (the "pre-cached" path).
- *  3. The recommended catalog model (which the caller then downloads automatically).
+ *  2. The bundled flagship model that is already cached on disk.
+ *  3. The biggest SmolLM2 that is already cached on disk.
  */
 export function chooseModel(localModels, preferredId) {
     if (preferredId) {
@@ -199,111 +199,52 @@ export function chooseModel(localModels, preferredId) {
 }
 
 /**
- * Downloads a catalog model into the store. Fully automatic: mirrors are tried
- * in order, partial downloads resume, and the file is only promoted to its
- * final name once it is complete and verified.
+ * The flagship model, used for the "what should VoxelChat run?" messaging.
  */
-export async function downloadCatalogModel(catalogEntry, {modelsDir, onProgress, signal, log = () => {}}) {
-    const targetPath = path.join(modelsDir, catalogEntry.fileName);
-    const partialPath = `${targetPath}.part`;
-
-    if (existsSync(targetPath)) {
-        const stats = statSync(targetPath);
-
-        if (stats.size > 0) return targetPath;
-    }
-
-    await fs.mkdir(modelsDir, {recursive: true});
-
-    let lastError = null;
-
-    for (const [index, url] of catalogEntry.mirrors.entries()) {
-        const attempt = index + 1;
-
-        try {
-            log(`Fetching ${catalogEntry.fileName} (mirror ${attempt}/${catalogEntry.mirrors.length})`);
-
-            const resumeFrom = existsSync(partialPath) ? statSync(partialPath).size : 0;
-            const response = await fetch(url, {
-                headers: resumeFrom > 0 ? {Range: `bytes=${resumeFrom}-`} : {},
-                redirect: "follow",
-                signal,
-            });
-
-            if (response.status === 416) {
-                // The partial file already covers the whole model.
-            } else if (!response.ok && response.status !== 206) {
-                throw new Error(`HTTP ${response.status} ${response.statusText}`);
-            }
-
-            const remaining = Number(response.headers.get("content-length") ?? 0);
-            const totalBytes = remaining > 0 ? remaining + resumeFrom : catalogEntry.approxBytes;
-            let downloaded = resumeFrom;
-            let lastReport = 0;
-
-            const source = Readable.fromWeb(response.body);
-            const meter = new Transform({
-                transform(chunk, _encoding, callback) {
-                    downloaded += chunk.length;
-
-                    const now = Date.now();
-
-                    if (now - lastReport >= 250) {
-                        lastReport = now;
-                        onProgress?.({
-                            downloadedBytes: downloaded,
-                            totalBytes,
-                            ratio: totalBytes > 0 ? Math.min(1, downloaded / totalBytes) : 0,
-                        });
-                    }
-
-                    callback(null, chunk);
-                },
-            });
-
-            await pipeline(source, meter, createWriteStream(partialPath, {flags: resumeFrom > 0 ? "a" : "w"}));
-
-            onProgress?.({downloadedBytes: downloaded, totalBytes, ratio: 1});
-
-            const verified = await verifyDownload(partialPath, catalogEntry);
-
-            if (!verified.ok) {
-                await fs.rm(partialPath, {force: true});
-                throw new Error(verified.reason ?? "Downloaded file failed verification");
-            }
-
-            await fs.rename(partialPath, targetPath);
-
-            return targetPath;
-        } catch (error) {
-            if (signal?.aborted) throw error;
-
-            lastError = error;
-            log(`Mirror failed: ${error.message}`);
-        }
-    }
-
-    throw lastError ?? new Error("Could not download the model");
+export function flagshipModel() {
+    return MODEL_CATALOG.find((model) => model.recommended) ?? MODEL_CATALOG[0];
 }
 
-async function verifyDownload(filePath, catalogEntry) {
+/**
+ * Checks a model file: it has to exist, to be a real GGUF and – when the
+ * catalogue knows the checksum – to match it byte for byte.
+ */
+export async function verifyModelFile(filePath, catalogEntry) {
     const stats = await fs.stat(filePath).catch(() => null);
 
     if (!stats || stats.size < 1024) {
-        return {ok: false, reason: "The downloaded file is empty."};
+        return {ok: false, reason: "The model file is empty."};
     }
 
     if (!(await looksLikeGguf(filePath))) {
-        return {ok: false, reason: "The downloaded file is not a valid GGUF model."};
+        return {ok: false, reason: "The model file is not a valid GGUF model."};
     }
 
-    if (catalogEntry.sha256) {
+    if (catalogEntry?.sha256) {
         const digest = await sha256OfFile(filePath);
 
         if (digest !== catalogEntry.sha256) {
-            return {ok: false, reason: `Checksum mismatch (expected ${catalogEntry.sha256.slice(0, 12)}…, got ${digest.slice(0, 12)}…).`};
+            return {
+                ok: false,
+                reason: `Checksum mismatch (expected ${catalogEntry.sha256.slice(0, 12)}…, got ${digest.slice(0, 12)}…).`,
+            };
         }
     }
 
-    return {ok: true};
+    return {ok: true, sizeBytes: stats.size};
+}
+
+/**
+ * True when the file is already on disk and intact.
+ */
+export async function isModelCached(modelsDir, catalogEntry) {
+    const targetPath = path.join(modelsDir, catalogEntry.fileName);
+
+    if (!existsSync(targetPath)) return false;
+
+    const stats = statSync(targetPath);
+
+    if (stats.size < 1024) return false;
+
+    return (await verifyModelFile(targetPath, catalogEntry)).ok;
 }
