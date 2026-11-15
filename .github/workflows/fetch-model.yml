@@ -70,11 +70,11 @@ jobs:
                   set -uo pipefail
                   rm -rf chunks
                   mkdir -p chunks
-                  split -b 40M -d -a 2 "$MODEL_NAME" chunks/part-
+                  split -b 20M -d -a 3 "$MODEL_NAME" chunks/part-
                   ls -l chunks | tail -3
 
-                  python3 - <<'PY'
-                  import base64, json, os, pathlib, urllib.request
+                  cat > /tmp/transport.py <<'PY'
+                  import base64, json, os, pathlib, sys, urllib.request
 
                   repo = os.environ["GITHUB_REPOSITORY"]
                   token = os.environ["GITHUB_TOKEN"]
@@ -101,11 +101,12 @@ jobs:
                   def need(method, url, payload=None):
                       status, body = request(method, url, payload)
                       if status not in (200, 201):
-                          raise SystemExit(f"{method} {url} -> {status}: {body[:500]}")
+                          raise SystemExit(f"{method} {url} -> {status}: {body[:800]}")
                       return json.loads(body) if body else {}
 
                   status, body = request("GET", f"{api}/git/ref/heads/main")
                   base_sha = json.loads(body)["object"]["sha"]
+                  print("base", base_sha)
 
                   entries = []
                   for chunk in sorted(pathlib.Path("chunks").iterdir()):
@@ -117,20 +118,34 @@ jobs:
                           "type": "blob",
                           "sha": blob["sha"],
                       })
-                      print(f"blob {chunk.name} -> {blob['sha']}")
+                      print(f"blob {chunk.name} -> {blob['sha']}", flush=True)
 
                   tree = need("POST", f"{api}/git/trees", {"base_tree": base_sha, "tree": entries})
+                  print("tree", tree["sha"])
                   commit = need("POST", f"{api}/git/commits", {
                       "message": "SmolLM2 1.7B Instruct Q4_K_M (transport chunks)",
                       "tree": tree["sha"],
                       "parents": [base_sha],
                   })
+                  print("commit", commit["sha"])
                   status, body = request("POST", f"{api}/git/refs", {
                       "ref": f"refs/heads/{branch}",
                       "sha": commit["sha"],
                   })
-                  print("ref:", status, body[:200])
+                  print("ref:", status, body[:300])
                   PY
+
+                  python3 /tmp/transport.py > /tmp/transport.log 2>&1
+                  status=$?
+                  tail -n 30 /tmp/transport.log
+
+                  if [ "$status" -ne 0 ]; then
+                      notes=$(printf '## transport error\n\n```\n%s\n```\n' "$(tail -c 2500 /tmp/transport.log | tr -d '\r')")
+                  else
+                      notes=$(printf 'SmolLM2 1.7B Instruct (Q4_K_M) - SHA-256: %s\n\ntransport branch: %s\n' "$MODEL_SHA256" "$TRANSPORT_BRANCH")
+                  fi
+                  gh release edit "$RELEASE_TAG" --notes "$notes" || true
+                  exit $status
 
             - name: Summarise
               run: |
