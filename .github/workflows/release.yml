@@ -63,14 +63,19 @@ jobs:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   set -euo pipefail
+                  cat > /tmp/model-notes.md <<'NOTES'
+                  The model weights that ship inside VoxelChat.
+
+                  Source: [HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF](https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF) (Apache-2.0)
+                  NOTES
+                  printf 'SHA-256: `%s`\n' "$MODEL_SHA256" >> /tmp/model-notes.md
+
                   gh release view "$MODEL_RELEASE" >/dev/null 2>&1 || \
                       gh release create "$MODEL_RELEASE" \
                           --title "SmolLM2 1.7B Instruct (Q4_K_M)" \
-                          --notes "The model weights that ship inside VoxelChat.
-
-SHA-256: \`$MODEL_SHA256\`
-Source: [HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF](https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF) (Apache-2.0)" \
+                          --notes-file /tmp/model-notes.md \
                           --target "$GITHUB_SHA"
+                  gh release edit "$MODEL_RELEASE" --notes-file /tmp/model-notes.md
                   gh release upload "$MODEL_RELEASE" "$MODEL_NAME" --clobber
 
     app:
@@ -126,14 +131,19 @@ Source: [HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF](https://huggingface.co/Huggin
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   set -euo pipefail
+                  cat > /tmp/app-notes.md <<'NOTES'
+                  VoxelChat - chat with SmolLM2 1.7B on your own machine.
+
+                  Unpack it and double-click **VoxelChat** (or **VoxelChat.cmd** on Windows).
+                  The model, the llama.cpp engine and a Node runtime are already inside.
+                  NOTES
+
                   gh release view "$APP_RELEASE" >/dev/null 2>&1 || \
                       gh release create "$APP_RELEASE" \
                           --title "VoxelChat 2.0" \
-                          --notes "VoxelChat – chat with SmolLM2 1.7B on your own machine.
-
-Unpack it and double-click **VoxelChat** (or **VoxelChat.cmd** on Windows).
-The model, the llama.cpp engine and a Node runtime are already inside." \
+                          --notes-file /tmp/app-notes.md \
                           --target "$GITHUB_SHA"
+                  gh release edit "$APP_RELEASE" --notes-file /tmp/app-notes.md
                   gh release upload "$APP_RELEASE" "${{ steps.pack.outputs.asset }}" --clobber
 
     summary:
@@ -149,8 +159,8 @@ The model, the llama.cpp engine and a Node runtime are already inside." \
                     echo ""
                     echo "| What | Where |"
                     echo "| --- | --- |"
-                    echo "| The app | [\`$APP_RELEASE\`](https://github.com/$GITHUB_REPOSITORY/releases/tag/$APP_RELEASE) |"
-                    echo "| The model | [\`$MODEL_RELEASE\`](https://github.com/$GITHUB_REPOSITORY/releases/tag/$MODEL_RELEASE) |"
+                    echo "| The app | [$APP_RELEASE](https://github.com/$GITHUB_REPOSITORY/releases/tag/$APP_RELEASE) |"
+                    echo "| The model | [$MODEL_RELEASE](https://github.com/$GITHUB_REPOSITORY/releases/tag/$MODEL_RELEASE) |"
                     echo ""
-                    echo "Model SHA-256: \`$MODEL_SHA256\`"
+                    echo "Model SHA-256: $MODEL_SHA256"
                   } >> "$GITHUB_STEP_SUMMARY"
