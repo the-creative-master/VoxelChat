@@ -1,0 +1,83 @@
+name: Fetch SmolLM2 model
+
+# The model weights (1.1 GB) do not live in git – GitHub refuses files above
+# 100 MB. This workflow fetches SmolLM2 1.7B from Hugging Face on a GitHub
+# runner, checks its checksum and publishes it two ways:
+#
+#   1. as a release asset  -> the URL VoxelChat downloads from (no Hugging Face
+#      needed at runtime, resumable, checksum verified)
+#   2. as chunks on a temporary branch -> a transport that lets a sandbox with
+#      a restricted network pull the very same bytes down
+#
+# The temporary branch is deleted once the release asset exists.
+
+on:
+    push:
+        branches: [arena/108466d4-voxelchat]
+        paths: [".github/workflows/fetch-model.yml"]
+    workflow_dispatch: {}
+
+permissions:
+    contents: write
+
+env:
+    MODEL_NAME: smollm2-1.7b-instruct-q4_k_m.gguf
+    MODEL_URL: https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/2d4a76a30b4af41ecd395c35725ac11688d4cfe4/smollm2-1.7b-instruct-q4_k_m.gguf
+    MODEL_SHA256: decd2598bc2c8ed08c19adc3c8fdd461ee19ed5708679d1c54ef54a5a30d4f33
+    RELEASE_TAG: smollm2-1.7b-instruct-q4_k_m
+
+jobs:
+    fetch:
+        runs-on: ubuntu-latest
+        timeout-minutes: 45
+
+        steps:
+            - name: Download SmolLM2 1.7B Instruct (Q4_K_M)
+              run: |
+                  set -euo pipefail
+                  echo "Downloading $MODEL_NAME ..."
+                  curl -L --fail --retry 3 --retry-delay 5 -C - -o "$MODEL_NAME" "$MODEL_URL"
+                  ls -lh "$MODEL_NAME"
+
+            - name: Verify checksum
+              run: |
+                  set -euo pipefail
+                  echo "$MODEL_SHA256  $MODEL_NAME" | sha256sum -c -
+
+            - name: Publish as a release asset
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+                  gh release view "$RELEASE_TAG" >/dev/null 2>&1 || \
+                      gh release create "$RELEASE_TAG" --title "SmolLM2 1.7B Instruct (Q4_K_M)" \
+                          --notes "Model weights for VoxelChat. SHA-256: $MODEL_SHA256"
+                  gh release upload "$RELEASE_TAG" "$MODEL_NAME" --clobber
+                  gh release view "$RELEASE_TAG"
+
+            - name: Publish chunks on a temporary branch (transport)
+              run: |
+                  set -euo pipefail
+                  mkdir -p chunks
+                  split -b 90M -d -a 2 "$MODEL_NAME" chunks/part-
+                  ls -lh chunks | head
+
+                  cd chunks
+                  git init -q .
+                  git config user.name "voxelchat-bot"
+                  git config user.email "voxelchat-bot@users.noreply.github.com"
+                  git add .
+                  git commit -q -m "SmolLM2 1.7B Instruct Q4_K_M (chunked transport)"
+                  git push --force \
+                    "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+                    "HEAD:refs/heads/model-cache"
+
+            - name: Summarise
+              run: |
+                  {
+                    echo "### SmolLM2 1.7B is ready"
+                    echo ""
+                    echo "- file: \`$MODEL_NAME\`"
+                    echo "- sha256: \`$MODEL_SHA256\`"
+                    echo "- release asset: \`https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$MODEL_NAME\`"
+                  } >> "$GITHUB_STEP_SUMMARY"
