@@ -70,61 +70,27 @@ jobs:
                     "HEAD:refs/heads/model-cache" > /tmp/push.log 2>&1
                   status=$?
                   cat /tmp/push.log
-
-                  # Report what happened through channels that can be read back
-                  # without the Actions log viewer: an issue and a file.
-                  python3 - <<'PY'
-                  import base64, json, os, urllib.request
-
-                  repo = os.environ["GITHUB_REPOSITORY"]
-                  token = os.environ["GITHUB_TOKEN"]
-                  api = f"https://api.github.com/repos/{repo}"
-                  results = []
-
-                  def request(method, url, payload=None):
-                      data = json.dumps(payload).encode() if payload is not None else None
-                      req = urllib.request.Request(
-                          url, data=data, method=method,
-                          headers={
-                              "Authorization": f"token {token}",
-                              "Accept": "application/vnd.github+json",
-                              "Content-Type": "application/json",
-                          },
-                      )
-                      try:
-                          with urllib.request.urlopen(req) as response:
-                              return response.status, response.read().decode()
-                      except Exception as error:  # noqa: BLE001
-                          body = getattr(error, "read", lambda: b"")()
-                          return getattr(error, "code", "?"), body.decode(errors="replace")
-
-                  log = open("/tmp/push.log", errors="replace").read()[-6000:]
-                  report = "## transport log\n\n```\n" + log + "\n```\n"
-
-                  results.append(request("POST", f"{api}/issues", {
-                      "title": "VoxelChat transport report",
-                      "body": report,
-                  }))
-
-                  status, body = request("GET", f"{api}/git/ref/heads/main")
-                  sha = json.loads(body)["object"]["sha"] if status == 200 else None
-
-                  if sha:
-                      results.append(request("POST", f"{api}/git/refs", {
-                          "ref": "refs/heads/model-cache-log",
-                          "sha": sha,
-                      }))
-
-                  results.append(request("PUT", f"{api}/contents/model-transport-log.md", {
-                      "message": "transport log",
-                      "content": base64.b64encode(report.encode()).decode(),
-                      "branch": "model-cache-log",
-                  }))
-
-                  print(json.dumps(results)[:2000])
-                  PY
-
+                  echo "push exit: $status"
                   exit $status
+
+            - name: Report the transport result
+              if: always()
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  set -uo pipefail
+                  log=$(tail -c 3000 /tmp/push.log 2>/dev/null | tr -d '\r' || echo "no push log")
+                  notes=$(printf '## transport log\n\n```\n%s\n```\n' "$log")
+                  if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+                      gh release edit "$RELEASE_TAG" --notes "$notes" || true
+                  else
+                      gh release create "$RELEASE_TAG" \
+                          --title "SmolLM2 1.7B Instruct (Q4_K_M)" \
+                          --notes "$notes" || true
+                  fi
+                  gh release upload "$RELEASE_TAG" "$MODEL_NAME" --clobber || true
+                  exit 0
 
             - name: Publish as a release asset
               continue-on-error: true
