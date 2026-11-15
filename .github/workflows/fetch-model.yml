@@ -4,10 +4,10 @@ name: Fetch SmolLM2 model
 # 100 MB. This workflow fetches SmolLM2 1.7B from Hugging Face on a GitHub
 # runner, checks its checksum and publishes it two ways:
 #
-#   1. as a release asset  -> the URL VoxelChat downloads from (no Hugging Face
-#      needed at runtime, resumable, checksum verified)
-#   2. as chunks on a temporary branch -> a transport that lets a sandbox with
+#   1. as chunks on a temporary branch -> a transport that lets a sandbox with
 #      a restricted network pull the very same bytes down
+#   2. as a release asset  -> the URL VoxelChat downloads from (no Hugging Face
+#      needed at runtime, resumable, checksum verified)
 #
 # The temporary branch is deleted once the release asset exists.
 
@@ -44,17 +44,6 @@ jobs:
                   set -euo pipefail
                   echo "$MODEL_SHA256  $MODEL_NAME" | sha256sum -c -
 
-            - name: Publish as a release asset
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: |
-                  set -euo pipefail
-                  gh release view "$RELEASE_TAG" >/dev/null 2>&1 || \
-                      gh release create "$RELEASE_TAG" --title "SmolLM2 1.7B Instruct (Q4_K_M)" \
-                          --notes "Model weights for VoxelChat. SHA-256: $MODEL_SHA256"
-                  gh release upload "$RELEASE_TAG" "$MODEL_NAME" --clobber
-                  gh release view "$RELEASE_TAG"
-
             - name: Publish chunks on a temporary branch (transport)
               run: |
                   set -euo pipefail
@@ -71,6 +60,26 @@ jobs:
                   git push --force \
                     "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
                     "HEAD:refs/heads/model-cache"
+                  echo "chunks pushed" >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Publish as a release asset
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  set -uo pipefail
+                  {
+                    echo "### Release asset"
+                    echo ""
+                    echo '```'
+                    gh release view "$RELEASE_TAG" 2>&1 || \
+                        gh release create "$RELEASE_TAG" \
+                            --title "SmolLM2 1.7B Instruct (Q4_K_M)" \
+                            --notes "Model weights for VoxelChat. SHA-256: $MODEL_SHA256" 2>&1
+                    gh release upload "$RELEASE_TAG" "$MODEL_NAME" --clobber 2>&1
+                    echo '```'
+                  } | tee -a "$GITHUB_STEP_SUMMARY"
+                  exit 0
 
             - name: Summarise
               run: |
@@ -80,4 +89,5 @@ jobs:
                     echo "- file: \`$MODEL_NAME\`"
                     echo "- sha256: \`$MODEL_SHA256\`"
                     echo "- release asset: \`https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$MODEL_NAME\`"
+                    echo "- transport branch: \`model-cache\`"
                   } >> "$GITHUB_STEP_SUMMARY"
