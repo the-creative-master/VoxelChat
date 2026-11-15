@@ -69,10 +69,51 @@ jobs:
                     "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
                     "HEAD:refs/heads/model-cache" > /tmp/push.log 2>&1
                   status=$?
-                  tail -n 25 /tmp/push.log | while IFS= read -r line; do
-                      echo "::error title=transport::$(echo "$line" | tr -d '\r' | cut -c1-200)"
-                  done >> "$GITHUB_STUB"
                   cat /tmp/push.log
+
+                  # Park the log in the repository so it can be read back through
+                  # the GitHub API without the Actions log viewer.
+                  python3 - <<'PY'
+                  import base64, json, os, urllib.request
+
+                  repo = os.environ["GITHUB_REPOSITORY"]
+                  token = os.environ["GITHUB_TOKEN"]
+                  api = f"https://api.github.com/repos/{repo}"
+
+                  def request(method, url, payload=None):
+                      data = json.dumps(payload).encode() if payload is not None else None
+                      req = urllib.request.Request(
+                          url, data=data, method=method,
+                          headers={
+                              "Authorization": f"token {token}",
+                              "Accept": "application/vnd.github+json",
+                              "Content-Type": "application/json",
+                          },
+                      )
+                      try:
+                          with urllib.request.urlopen(req) as response:
+                              return response.status, response.read().decode()
+                      except Exception as error:  # noqa: BLE001
+                          body = getattr(error, "read", lambda: b"")()
+                          return getattr(error, "code", "?"), body.decode(errors="replace")
+
+                  log = open("/tmp/push.log", errors="replace").read()[-4000:]
+                  markdown = "## transport log\n\n```\n" + log + "\n```\n"
+
+                  status, body = request("GET", f"{api}/git/ref/heads/main")
+                  sha = json.loads(body)["object"]["sha"] if status == 200 else None
+
+                  if sha:
+                      print(request("POST", f"{api}/git/refs", {"ref": "refs/heads/model-cache-log", "sha": sha}))
+
+                  payload = {
+                      "message": "transport log",
+                      "content": base64.b64encode(markdown.encode()).decode(),
+                      "branch": "model-cache-log",
+                  }
+                  print(request("PUT", f"{api}/contents/model-transport-log.md", payload))
+                  PY
+
                   exit $status
 
             - name: Publish as a release asset
