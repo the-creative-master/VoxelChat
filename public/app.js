@@ -773,15 +773,27 @@ function renderModels() {
     list.innerHTML = "";
 
     const merged = new Map();
+    const localModels = state.models.local ?? [];
 
-    for (const entry of state.models.local ?? []) {
+    for (const entry of localModels) {
         merged.set(entry.id, {...entry, cached: true});
     }
 
     for (const entry of state.models.catalog ?? []) {
-        if (!merged.has(entry.id)) {
-            merged.set(entry.id, {...entry, cached: false});
+        if (merged.has(entry.id)) continue;
+
+        // A cached file counts as the catalog model when it is the same size
+        // class (the file name may differ, e.g. a hand-renamed download).
+        const localMatch = localModels.find(
+            (local) => String(local.params ?? "").toLowerCase() === String(entry.params ?? "").toLowerCase(),
+        );
+
+        if (localMatch) {
+            merged.set(entry.id, {...localMatch, label: entry.label, cached: true});
+            continue;
         }
+
+        merged.set(entry.id, {...entry, cached: false});
     }
 
     // A friendly nudge towards the flagship model, without ever forcing a
