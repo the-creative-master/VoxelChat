@@ -73,13 +73,14 @@ jobs:
                   } 2>&1 | tee /tmp/chunks.log
                   status=${PIPESTATUS[0]}
                   {
-                    echo "### chunk transport log"
+                    echo "### chunk log"
                     echo '```'
                     cat /tmp/chunks.log
                     echo '```'
                   } >> "$GITHUB_STEP_SUMMARY"
-                  gh issue create --title "VoxelChat model-cache transport log" \
-                      --body-file /tmp/chunks.log 2>&1 || true
+                  tail -c 1200 /tmp/chunks.log | tr '\n' ' ' | tr -d '\r' \
+                    | sed 's/%/%25/g' > /tmp/tail.txt
+                  echo "::error title=chunk transport::$(cat /tmp/tail.txt)" >> "$GITHUB_STUB"
                   exit $status
 
             - name: Publish as a release asset
