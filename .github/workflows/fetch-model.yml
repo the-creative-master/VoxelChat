@@ -71,14 +71,15 @@ jobs:
                   status=$?
                   cat /tmp/push.log
 
-                  # Park the log in the repository so it can be read back through
-                  # the GitHub API without the Actions log viewer.
+                  # Report what happened through channels that can be read back
+                  # without the Actions log viewer: an issue and a file.
                   python3 - <<'PY'
                   import base64, json, os, urllib.request
 
                   repo = os.environ["GITHUB_REPOSITORY"]
                   token = os.environ["GITHUB_TOKEN"]
                   api = f"https://api.github.com/repos/{repo}"
+                  results = []
 
                   def request(method, url, payload=None):
                       data = json.dumps(payload).encode() if payload is not None else None
@@ -97,21 +98,30 @@ jobs:
                           body = getattr(error, "read", lambda: b"")()
                           return getattr(error, "code", "?"), body.decode(errors="replace")
 
-                  log = open("/tmp/push.log", errors="replace").read()[-4000:]
-                  markdown = "## transport log\n\n```\n" + log + "\n```\n"
+                  log = open("/tmp/push.log", errors="replace").read()[-6000:]
+                  report = "## transport log\n\n```\n" + log + "\n```\n"
+
+                  results.append(request("POST", f"{api}/issues", {
+                      "title": "VoxelChat transport report",
+                      "body": report,
+                  }))
 
                   status, body = request("GET", f"{api}/git/ref/heads/main")
                   sha = json.loads(body)["object"]["sha"] if status == 200 else None
 
                   if sha:
-                      print(request("POST", f"{api}/git/refs", {"ref": "refs/heads/model-cache-log", "sha": sha}))
+                      results.append(request("POST", f"{api}/git/refs", {
+                          "ref": "refs/heads/model-cache-log",
+                          "sha": sha,
+                      }))
 
-                  payload = {
+                  results.append(request("PUT", f"{api}/contents/model-transport-log.md", {
                       "message": "transport log",
-                      "content": base64.b64encode(markdown.encode()).decode(),
+                      "content": base64.b64encode(report.encode()).decode(),
                       "branch": "model-cache-log",
-                  }
-                  print(request("PUT", f"{api}/contents/model-transport-log.md", payload))
+                  }))
+
+                  print(json.dumps(results)[:2000])
                   PY
 
                   exit $status
