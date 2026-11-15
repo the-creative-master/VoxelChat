@@ -1,30 +1,188 @@
-# VoxelChat
+<div align="center">
 
-A polished, static AI chat and image-generation interface designed for **GitHub Pages**. It discovers model catalogs from OpenAI-compatible providers, including OpenRouter's hundreds of available models, and sends requests directly from your browser.
+# ▛▀▖▛ VoxelChat
 
-## Deploy on GitHub Pages
+**Chat with SmolLM2 1.7B on your own machine.**
+No cloud. No API key. No account. No setup.
 
-1. In the repository, open **Settings → Pages**.
-2. Under **Build and deployment**, choose **Deploy from a branch**.
-3. Select `main` and the `/(root)` folder, then save.
-4. Open the published Pages URL after the deployment finishes.
+![node](https://img.shields.io/badge/node-%E2%89%A520-informational?style=flat-square)
+![license](https://img.shields.io/badge/license-MIT-informational?style=flat-square)
+![offline](https://img.shields.io/badge/model-100%25%20local-6bcb77?style=flat-square)
 
-The site is plain HTML, CSS, and JavaScript—no Node server or build step is required. GitHub Pages serves the root `index.html`; `server.js` is not used by the static app.
+</div>
 
-## Connect chat models
+---
 
-1. Open **Settings & providers** inside VoxelChat.
-2. Choose **OpenRouter — hundreds of models**, enter an OpenRouter API key, and save.
-3. Use the model selector in the message composer. VoxelChat fetches the provider's live model list; available models depend on your account and provider.
+## The idea
 
-OpenAI, custom OpenAI-compatible APIs, and local Ollama are also supported. For Ollama, allow the Pages origin in Ollama's `OLLAMA_ORIGINS` configuration and make the local server reachable from the browser. A hosted GitHub Pages site cannot reach another user's localhost unless they configure that local service and browser access.
+VoxelChat is a chat app for people who do not want to *configure* a chat app.
 
-## Image generation
+It runs **SmolLM2 1.7B Instruct** through **llama.cpp** (via
+[`node-llama-cpp`](https://github.com/withcatai/node-llama-cpp)) directly on
+your machine. You install it once, you start it once, and from then on you just
+type. Everything – the model, the inference, the interface – lives on your
+computer and works without an internet connection.
 
-Open **Image studio** and configure an image API base URL, image model, and API key in Settings. The current implementation sends OpenAI-compatible `POST /images/generations` requests (for example, OpenAI's Images API). A chat provider's key is reused when the image key is blank. The endpoint must allow browser CORS requests and support the requested image model and parameters.
+```bash
+npm install
+npm start
+```
 
-## Important security and hosting limits
+That is the whole setup. Your browser opens by itself and you are chatting.
 
-GitHub Pages is static hosting; it cannot securely store API keys or hide provider requests behind a server. Keys are saved in this browser's local storage and sent directly to the chosen provider. Use a restricted key, avoid shared devices, and never commit keys to this repository. For a public production app, put provider calls behind a backend you control, with authentication, rate limiting, and secret management.
+> No `ollama pull`, no `huggingface-cli download`, no "now open PowerShell and
+> paste this 200-character command". VoxelChat pre-caches the model for you and
+> never asks you to touch a terminal again.
 
-Chat history and settings are stored in the browser's local storage. Clearing site data removes them. Model availability, pricing, and image-generation support are determined by the selected provider.
+---
+
+## What you get
+
+| | |
+| --- | --- |
+| 🧠 **SmolLM2 1.7B Instruct** | The full 1.7B model (Apache-2.0), quantised to Q4_K_M so it runs happily on a laptop CPU. |
+| ⚡ **Streaming replies** | Tokens appear as they are generated – with live tokens/second. |
+| 🎭 **Six personas** | Helpful Assistant, Code Buddy, Creative Writer, Study Tutor, Summarizer, Devil's Advocate – plus your own system prompt. |
+| 🎛️ **Real controls** | Temperature, top-p, max tokens, context size, theme. All persisted. |
+| 🗂️ **Conversation history** | Multiple chats, stored in your browser, never uploaded. |
+| 📴 **Fully offline** | After the one-time model cache, VoxelChat never talks to the network. |
+| 🪶 **One small dependency tree** | `node-llama-cpp` ships prebuilt binaries – nothing is compiled on your machine. |
+
+---
+
+## Getting started
+
+### 1. Install
+
+```bash
+npm install
+```
+
+`node-llama-cpp` downloads a prebuilt llama.cpp binary for your platform
+(Windows, macOS, Linux – x64 or ARM64). No compiler, no Python, no CUDA
+toolchain, no administrator rights.
+
+### 2. Start
+
+```bash
+npm start
+```
+
+VoxelChat prints a small banner, opens your default browser at
+`http://localhost:7842`, and is ready to talk.
+
+### 3. Chat
+
+Type in the composer. Press <kbd>Enter</kbd> to send, <kbd>Shift</kbd>+<kbd>Enter</kbd>
+for a new line, <kbd>Esc</kbd> to close panels.
+
+That is the entire experience. If you already ran `npm install`, every future
+launch is a single `npm start`.
+
+---
+
+## The model is pre-cached for you
+
+VoxelChat keeps its models in the `models/` folder, right next to the app.
+
+* **First launch only:** if `models/` is empty, VoxelChat downloads
+  **SmolLM2 1.7B Instruct (Q4_K_M, ≈1.1 GB)** once, verifies its SHA-256
+  checksum, and shows the progress right in the browser. There is nothing to
+  confirm and nothing to run – just watch the bar.
+* **Every launch after that:** the model is already on disk, so VoxelChat starts
+  instantly and works with the network unplugged.
+* **Your call:** drop any other `.gguf` file into `models/` and it shows up in
+  the model picker automatically. The folder opens with the 📂 button in the
+  sidebar.
+
+SmolLM2 is trained by [Hugging Face](https://huggingface.co/HuggingFaceTB) and
+released under the Apache-2.0 licence.
+
+---
+
+## Using it
+
+### Personas
+
+A persona is just a system prompt. Pick one from the composer chip or the
+settings drawer:
+
+* 🧭 **Helpful Assistant** – balanced and clear
+* 🛠️ **Code Buddy** – practical code and trade-offs
+* ✍️ **Creative Writer** – vivid prose and brainstorming
+* 🎓 **Study Tutor** – explains step by step
+* 📌 **Summarizer** – distils into bullet points
+* 🧨 **Devil's Advocate** – pushes back, politely
+
+Write your own in **Settings → Custom system prompt**.
+
+### Generation controls
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| Temperature | `0.7` | Lower is more focused, higher is more creative. |
+| Top-p | `0.9` | Nucleus sampling cutoff. |
+| Max new tokens | `512` | Upper bound for a single reply. |
+| Context size | `4096` | How much conversation the model can remember. |
+
+### Keyboard
+
+| Key | Action |
+| --- | --- |
+| <kbd>Enter</kbd> | Send the message |
+| <kbd>Shift</kbd>+<kbd>Enter</kbd> | New line |
+| <kbd>Esc</kbd> | Close the settings drawer / sidebar |
+| <kbd>Ctrl</kbd>+<kbd>C</kbd> | Copy the reply (from the message actions) |
+
+---
+
+## Privacy
+
+* The model runs in-process. **Your prompts never leave your machine.**
+* No telemetry, no analytics, no accounts, no API keys.
+* Conversations and settings live in `localStorage` (browser) and
+  `data/settings.json` (disk).
+* The only network request VoxelChat ever makes is the one-time model download
+  into `models/`.
+
+---
+
+## Requirements
+
+* **Node.js 20 or newer** (`node --version`)
+* ~2 GB of free RAM for SmolLM2 1.7B (Q4_K_M)
+* ~1.2 GB of disk for the model
+* A GPU is used automatically when llama.cpp finds one; otherwise it runs on
+  the CPU.
+
+---
+
+## Project layout
+
+```
+voxelchat/
+├── src/
+│   ├── launcher.js     # npm start – banner, browser launcher, boot sequence
+│   ├── server.js       # Express + JSON/SSE API
+│   ├── engine.js       # llama.cpp session, streaming, model swapping
+│   ├── model-store.js  # model catalogue, cache, checksum-verified download
+│   ├── settings.js     # persisted preferences
+│   └── personas.js     # the built-in personas
+├── public/             # the interface (vanilla HTML/CSS/JS, no build step)
+├── scripts/            # api + ui smoke tests
+├── models/             # your cached .gguf models (git-ignored)
+└── data/               # your settings (git-ignored)
+```
+
+## Tests
+
+```bash
+npm test
+```
+
+Runs the API test (server endpoints) and the UI smoke test (the real front-end
+in jsdom: boot → send → stream → persist).
+
+## Licence
+
+MIT for the app. SmolLM2 is Apache-2.0, © Hugging Face.

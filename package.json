@@ -1,11 +1,35 @@
 {
   "name": "voxelchat",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Static GitHub Pages AI chat and image generation interface",
+  "description": "Chat with SmolLM2 1.7B on your own machine – zero setup, zero cloud, zero API keys.",
+  "type": "module",
+  "main": "src/launcher.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
+    "start": "node src/launcher.js",
+    "dev": "node --watch src/launcher.js",
+    "prepare-model": "node scripts/prepare-model.mjs",
+    "test": "node scripts/api-test.mjs && node scripts/smoke-test.mjs",
+    "test:api": "node scripts/api-test.mjs",
+    "test:ui": "node scripts/smoke-test.mjs"
   },
-  "license": "MIT"
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "llama",
+    "smollm2",
+    "node-llama-cpp",
+    "local-llm",
+    "offline",
+    "chat"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.2",
+    "node-llama-cpp": "^3.22.3"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0"
+  }
 }
