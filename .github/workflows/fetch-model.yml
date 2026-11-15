@@ -69,7 +69,9 @@ jobs:
                   import base64, json, os, pathlib, sys, urllib.request
 
                   repo = os.environ["GITHUB_REPOSITORY"]
-                  token = os.environ["GITHUB_TOKEN"]
+                  token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+                  if not token:
+                      raise SystemExit("no GitHub token in the environment")
                   branch = os.environ["TRANSPORT_BRANCH"]
                   api = f"https://api.github.com/repos/{repo}"
 
@@ -150,20 +152,18 @@ jobs:
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
-                  set -uo pipefail
+                  status=0
                   {
-                    set -x
-                    df -h / | tail -2
-                    ls -lh "$MODEL_NAME"
-                    rm -rf chunks
-                    mkdir -p chunks
-                    split -b 20M -d -a 3 "$MODEL_NAME" chunks/part-
+                    df -h / | tail -2 || true
+                    ls -lh "$MODEL_NAME" || true
+                    rm -rf chunks || true
+                    mkdir -p chunks || true
+                    split -b 20M -d -a 3 "$MODEL_NAME" chunks/part- || true
                     ls chunks | wc -l
-                    python3 /tmp/transport.py
-                    echo "transport exit: $?"
-                  } > /tmp/transport.log 2>&1
-                  status=$?
-                  tail -n 30 /tmp/transport.log
+                    python3 /tmp/transport.py || status=$?
+                    echo "transport exit: $status"
+                  } > /tmp/transport.log 2>&1 || true
+                  tail -n 30 /tmp/transport.log || true
 
                   notes=$(printf '## transport log\n\n```\n%s\n```\n' "$(tail -c 3000 /tmp/transport.log | tr -d '\r')")
                   gh release create "transport-report-${{ github.run_id }}" \
