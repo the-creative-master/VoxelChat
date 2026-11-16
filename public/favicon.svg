@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="16" fill="#FFF8EB"/>
+  <rect x="4" y="4" width="56" height="56" rx="13" fill="#FDE68A" stroke="#C98A4B" stroke-width="3"/>
+  <!-- Waffle wedge on rim -->
+  <g transform="rotate(18 42 20)">
+    <rect x="31" y="9" width="20" height="20" rx="4" fill="#F59E0B" stroke="#92400E" stroke-width="2.5"/>
+    <rect x="35" y="13" width="4.5" height="4.5" rx="1" fill="#D97706"/>
+    <rect x="42.5" y="13" width="4.5" height="4.5" rx="1" fill="#D97706"/>
+    <rect x="35" y="20.5" width="4.5" height="4.5" rx="1" fill="#D97706"/>
+    <rect x="42.5" y="20.5" width="4.5" height="4.5" rx="1" fill="#D97706"/>
+  </g>
+  <!-- Handle -->
+  <path d="M46 31h5a6 6 0 0 1 0 12h-5" fill="none" stroke="#FFFDF9" stroke-width="6" stroke-linecap="round"/>
+  <path d="M46 31h5a6 6 0 0 1 0 12h-5" fill="none" stroke="#78350F" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Cup body -->
+  <path d="M14 25h33v16c0 8.5-6.5 14-16.5 14S14 49.5 14 41V25z" fill="#FFFDF9" stroke="#78350F" stroke-width="2.8" stroke-linejoin="round"/>
+  <!-- Coffee rim -->
+  <ellipse cx="30.5" cy="25" rx="16.5" ry="4.5" fill="#6F3E1E" stroke="#78350F" stroke-width="2.5"/>
+  <!-- Cute face -->
+  <circle cx="24" cy="38" r="2.4" fill="#3B2314"/>
+  <circle cx="37" cy="38" r="2.4" fill="#3B2314"/>
+  <circle cx="23.2" cy="37.2" r="0.9" fill="#FFFFFF"/>
+  <circle cx="36.2" cy="37.2" r="0.9" fill="#FFFFFF"/>
+  <ellipse cx="19.5" cy="41.5" rx="3" ry="1.8" fill="#FDA4AF"/>
+  <ellipse cx="41.5" cy="41.5" rx="3" ry="1.8" fill="#FDA4AF"/>
+  <path d="M27.5 41.5q3 3.5 6 0" fill="none" stroke="#3B2314" stroke-width="2.2" stroke-linecap="round"/>
+</svg>

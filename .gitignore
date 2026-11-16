@@ -1,5 +1,10 @@
 node_modules/
+dist/
+build/
+.vite/
 .env
 .env.local
 npm-debug.log*
 .DS_Store
+Unselected files/
+*.tsbuildinfo
