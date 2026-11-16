@@ -33,11 +33,11 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
       onClick={() => void handleCopy()}
       className={`toy-btn ${
         copied
-          ? 'bg-[#DCFCE7] border-[#15803D] text-[#14532D]'
-          : 'bg-[#FFFDF8] hover:bg-[#FEF3C7] border-[#D4AA78] text-[#4A2506]'
+          ? 'bg-[#eef4e6] border-[#cfe0c2] text-[#41603f]'
+          : 'bg-[#fafbf5] hover:bg-[#edf0e4] border-[#dfe5d2] text-[#52644f]'
       } ${size === 'xs' ? 'px-2.5 py-1 text-xs' : 'px-3.5 py-2 text-xs sm:text-sm'} ${className}`}
     >
-      {copied ? <Check className="w-3.5 h-3.5 text-[#16A34A]" /> : <Copy className="w-3.5 h-3.5" />}
+      {copied ? <Check className="w-3.5 h-3.5 text-[#5b8a5a]" /> : <Copy className="w-3.5 h-3.5" />}
       <span>{copied ? 'Copied!' : label}</span>
     </button>
   );

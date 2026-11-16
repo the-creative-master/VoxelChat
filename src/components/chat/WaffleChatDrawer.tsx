@@ -353,15 +353,15 @@ export const WaffleChatDrawer: React.FC<WaffleChatDrawerProps> = ({ activeContex
             setOpen(true);
           }}
           className="fixed bottom-4 right-4 z-40 flex items-center gap-2 pr-4 pl-2 py-1.5 rounded-full
-                     bg-gradient-to-b from-[#FFFDF9] to-[#FDE8C8] border-[3px] border-b-[6px] border-[#8B5220]
-                     shadow-toy-lg cursor-pointer group"
+                     bg-gradient-to-b from-[#fffefa] to-[#FDE8C8] border-[3px] border border-[#dfe5d2]
+                     shadow-[0_18px_44px_-16px_#28392130] cursor-pointer group"
           aria-label="Open WaffleChat local AI assistant"
         >
           <div className="-my-2">
             <WaffleCupMascot size={50} showSteam={false} showSaucer={false} />
           </div>
           <div className="text-left leading-tight">
-            <div className="font-display font-bold text-sm text-[#3B2314] flex items-center gap-1">
+            <div className="font-serif font-medium text-sm text-[#273e30] flex items-center gap-1">
               <span>Ask WaffleChat</span>
               <MessageCircle className="w-3.5 h-3.5 text-[#EF4444]" />
             </div>
@@ -380,14 +380,14 @@ export const WaffleChatDrawer: React.FC<WaffleChatDrawerProps> = ({ activeContex
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 28, scale: 0.94 }}
             transition={{ type: 'spring', stiffness: 400, damping: 28 }}
-            className={`fixed bottom-3 right-3 z-50 flex flex-col rounded-3xl bg-[#FFFDF9] border-[3px] border-b-[9px] border-[#8B5220] shadow-toy-lg overflow-hidden transition-[width,height] duration-200 ${
+            className={`fixed bottom-3 right-3 z-50 flex flex-col rounded-3xl bg-[#fffefa] border-[3px] border-b-[9px] border-[#dfe5d2] shadow-[0_18px_44px_-16px_#28392130] overflow-hidden transition-[width,height] duration-200 ${
               expanded
                 ? 'w-[calc(100vw-1.5rem)] sm:w-[620px] h-[calc(100vh-1.5rem)] sm:h-[82vh]'
                 : 'w-[calc(100vw-1.5rem)] sm:w-[410px] h-[74vh] max-h-[640px]'
             }`}
           >
             {/* Header */}
-            <div className="wood-shelf-surface border-b-[4px] border-[#8B5220] px-4 py-2.5 flex items-center justify-between gap-2">
+            <div className="wood-shelf-surface border border-[#dfe5d2] px-4 py-2.5 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
                 <div className="-my-2 shrink-0">
                   <WaffleCupMascot
@@ -398,7 +398,7 @@ export const WaffleChatDrawer: React.FC<WaffleChatDrawerProps> = ({ activeContex
                   />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="font-display font-bold text-base text-[#3B2314] leading-tight">
+                  <h3 className="font-serif font-medium text-base text-[#273e30] leading-tight">
                     WaffleChat
                   </h3>
                   <p className="text-[10.5px] font-semibold text-[#5C3415] truncate">
@@ -413,8 +413,8 @@ export const WaffleChatDrawer: React.FC<WaffleChatDrawerProps> = ({ activeContex
                   onClick={() => setShowManager((s) => !s)}
                   className={`toy-btn px-2.5 py-1.5 text-[11px] ${
                     showManager
-                      ? 'bg-[#FEF08A] border-[#92400E] text-[#4A2506]'
-                      : 'bg-[#FFFDF8] border-[#9A5F28] text-[#4A2506]'
+                      ? 'bg-[#FEF08A] border-[#c9d2ba] text-[#4A2506]'
+                      : 'bg-[#FFFDF8] border-[#dfe5d2] text-[#4A2506]'
                   }`}
                   title="Device RAM & Cached GGUF Storage Manager"
                 >
@@ -444,13 +444,13 @@ export const WaffleChatDrawer: React.FC<WaffleChatDrawerProps> = ({ activeContex
             </div>
 
             {/* Model Selector & Download Progress Bar */}
-            <div className="bg-[#FFF8EB] border-b-2 border-[#E6C79C] px-3.5 py-2.5 space-y-2">
+            <div className="bg-[#faf8f1] border-b-2 border-[#e5e7db] px-3.5 py-2.5 space-y-2">
               <div className="flex items-center gap-2">
                 <select
                   value={selectedModelId}
                   onChange={(e) => setSelectedModelId(e.target.value)}
                   disabled={loading}
-                  className="flex-1 min-w-0 rounded-xl bg-white border-2 border-[#D4AA78] px-2.5 py-1.5 text-xs font-semibold text-[#3B2314] focus:outline-none focus:border-[#D97706]"
+                  className="flex-1 min-w-0 rounded-xl bg-white border border-[#dfe5d2] px-2.5 py-1.5 text-xs font-semibold text-[#273e30] focus:outline-none focus:border-[#c39144]"
                 >
                   {WAFFLECHAT_MODELS.map((m) => (
                     <option key={m.id} value={m.id}>
@@ -489,7 +489,7 @@ export const WaffleChatDrawer: React.FC<WaffleChatDrawerProps> = ({ activeContex
                 </button>
               </div>
 
-              <p className="text-[11px] text-[#7A5433] leading-snug">
+              <p className="text-[11px] text-[#8c947e] leading-snug">
                 <strong>{selectedModel.badge}:</strong> {selectedModel.description}
               </p>
 
@@ -501,7 +501,7 @@ export const WaffleChatDrawer: React.FC<WaffleChatDrawerProps> = ({ activeContex
                     </span>
                     <span>{progress.speedMBs.toFixed(1)} MB/s</span>
                   </div>
-                  <div className="h-2.5 rounded-full bg-[#E6C79C] overflow-hidden border border-[#C98A4B]">
+                  <div className="h-2.5 rounded-full bg-[#e5e7db] overflow-hidden border border-[#dfe5d2]">
                     <div
                       className="h-full bg-gradient-to-r from-[#22C55E] to-[#16A34A] transition-all"
                       style={{
@@ -524,7 +524,7 @@ export const WaffleChatDrawer: React.FC<WaffleChatDrawerProps> = ({ activeContex
               <div className="bg-[#FDF3E1] border-b-2 border-[#DEC098] p-3.5 max-h-64 overflow-y-auto space-y-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-[#5C3415]">
                   <span className="inline-flex items-center gap-1">
-                    <Cpu className="w-3.5 h-3.5 text-[#D97706]" />
+                    <Cpu className="w-3.5 h-3.5 text-[#c39144]" />
                     Device RAM: {deviceRamGb ? `~${deviceRamGb} GB` : 'Auto-detected'} •{' '}
                     {isMultiThreadSupported ? 'SharedArrayBuffer SIMD' : 'Single-Thread WASM'}
                   </span>
@@ -544,11 +544,11 @@ export const WaffleChatDrawer: React.FC<WaffleChatDrawerProps> = ({ activeContex
                         className="flex items-center justify-between gap-2 rounded-xl bg-white border border-[#DEC098] px-3 py-2 text-xs"
                       >
                         <div className="min-w-0">
-                          <div className="font-bold text-[#3B2314] truncate flex items-center gap-1.5">
+                          <div className="font-bold text-[#273e30] truncate flex items-center gap-1.5">
                             {cached && <CheckCircle2 className="w-3.5 h-3.5 text-[#16A34A] shrink-0" />}
                             <span className="truncate">{m.name}</span>
                           </div>
-                          <div className="text-[10.5px] text-[#7A5433]">
+                          <div className="text-[10.5px] text-[#8c947e]">
                             {cached ? `Cached offline (${formatMB(cached.size)})` : `${m.sizeLabel} • Not downloaded`}
                           </div>
                         </div>
@@ -567,7 +567,7 @@ export const WaffleChatDrawer: React.FC<WaffleChatDrawerProps> = ({ activeContex
                             type="button"
                             disabled={loading}
                             onClick={() => void handleLoadModel(m)}
-                            className="px-2.5 py-1 rounded-lg bg-[#FEF3C7] hover:bg-[#FDE68A] text-[#78350F] text-[10.5px] font-bold border border-[#D97706] shrink-0"
+                            className="px-2.5 py-1 rounded-lg bg-[#f2f4e8] hover:bg-[#eef0e4] text-[#78350F] text-[10.5px] font-bold border border-[#c39144] shrink-0"
                           >
                             Get
                           </button>
@@ -580,17 +580,17 @@ export const WaffleChatDrawer: React.FC<WaffleChatDrawerProps> = ({ activeContex
             )}
 
             {/* Chat Messages */}
-            <div ref={scrollRef} className="flex-1 overflow-y-auto p-3.5 space-y-3 bg-[#FFFDF9]">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto p-3.5 space-y-3 bg-[#fffefa]">
               {messages.map((m) => (
                 <div
                   key={m.id}
                   className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}
                 >
                   <div
-                    className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words border-2 ${
+                    className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words border ${
                       m.role === 'user'
                         ? 'bg-[#EF4444] text-white border-[#991B1B] rounded-br-md'
-                        : 'bg-[#FFF8EB] text-[#3B2314] border-[#E6C79C] rounded-bl-md'
+                        : 'bg-[#faf8f1] text-[#273e30] border-[#e5e7db] rounded-bl-md'
                     }`}
                   >
                     {m.content || (generating ? 'Thinking locally...' : '')}
@@ -607,7 +607,7 @@ export const WaffleChatDrawer: React.FC<WaffleChatDrawerProps> = ({ activeContex
             {/* Composer */}
             <form
               onSubmit={(e) => void handleSend(e)}
-              className="p-3 bg-[#FFF8EB] border-t-2 border-[#E6C79C] flex items-center gap-2"
+              className="p-3 bg-[#faf8f1] border-t-2 border-[#e5e7db] flex items-center gap-2"
             >
               <input
                 type="text"

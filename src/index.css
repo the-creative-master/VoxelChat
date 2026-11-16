@@ -4,26 +4,41 @@
 
 @layer base {
   :root {
-    --waffle-cream: #FFF8EB;
-    --waffle-grid: #F3DFC1;
-    --waffle-pocket: #E6C79C;
-    --waffle-crust: #C98A4B;
-    --waffle-caramel: #8B5A2B;
-    --waffle-espresso: #3B2314;
-    --spring-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+    /* ------------------------------------------------------------------
+       Editorial "little tool kitchen" tokens, matched to the live site:
+       warm paper, sage green ink, terracotta accents, Playfair + DM Sans.
+       ------------------------------------------------------------------ */
+    --ink: #21382e;
+    --paper: #faf8f1;
+    --muted: #617264;
+    --line: #e1e5d8;
+    --green: #224c38;
+    --green-deep: #1b3329;
+    --accent: #d5764e;      /* terracotta — links, em, spark */
+    --leaf: #416e4b;
+    --gold: #c39144;
+    --surface: #fffefa;
+    --soft: #f0f1e7;
+    --shadow: 0 14px 40px #28392112;
+    --radius: 16px;
 
-    /* ---- themable kitchen colours (written by uiPrefs.ts) ---- */
-    --kitchen-main: #8B5A2B;
-    --kitchen-main-ink: #FFF8EB;
-    --kitchen-main-light: #B0824F;
-    --kitchen-main-dark: #693F1C;
-    --kitchen-accent: #F59E0B;
-    --kitchen-accent-ink: #3B2314;
-    --kitchen-accent-light: #F8C15A;
-    --kitchen-accent-dark: #C07C08;
+    --serif: 'Playfair Display', Georgia, 'Times New Roman', serif;
+    --sans: 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    /* themable kitchen colours (written by uiPrefs.ts) */
+    --kitchen-main: #224c38;
+    --kitchen-main-ink: #f6f2e6;
+    --kitchen-main-light: #3f6a52;
+    --kitchen-main-dark: #163026;
+    --kitchen-accent: #d5764e;
+    --kitchen-accent-ink: #fff8ef;
+    --kitchen-accent-light: #e29a77;
+    --kitchen-accent-dark: #a8542f;
+
+    --sidebar-w: 260px;
   }
 
-  /* Deep-link the palette into Tailwind-ish utility usages */
   .kitchen-main-bg { background-color: var(--kitchen-main); color: var(--kitchen-main-ink); }
   .kitchen-accent-bg { background-color: var(--kitchen-accent); color: var(--kitchen-accent-ink); }
 
@@ -38,205 +53,257 @@
     text-shadow: none !important;
     backdrop-filter: none !important;
   }
-  .potato-mode .waffle-texture,
+  .potato-mode .kitchen-scene,
+  .potato-mode .scene-window,
   .potato-mode .steam-curl,
-  .potato-mode .crumb { display: none !important; }
+  .potato-mode .waffle-texture { display: none !important; }
 
   html {
-    font-family: 'Plus Jakarta Sans', 'Nunito', ui-sans-serif, system-ui, sans-serif;
-    background-color: #FFF8EB;
-    color: #3B2314;
+    font-family: var(--sans);
+    font-size: 15px;
+    background-color: var(--paper);
+    color: var(--ink);
     scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: var(--paper);
+    color: var(--ink);
+    margin: 0;
   }
 
   code, pre, kbd, .font-mono {
-    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-family: var(--mono);
     font-variant-ligatures: contextual common-ligatures;
     font-feature-settings: "liga" 1, "calt" 1;
   }
 
+  /* Headings are editorial serif, not chunky rounded display type. */
   h1, h2, h3, .font-display {
-    font-family: 'Fredoka', 'Nunito', ui-rounded, system-ui, sans-serif;
+    font-family: var(--serif);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: #253f31;
   }
+
+  h1 { font-size: clamp(38px, 4vw, 58px); line-height: 1.08; letter-spacing: -2px; }
+  h2 { font-size: clamp(24px, 2.4vw, 32px); letter-spacing: -0.7px; }
+  h3 { font-size: 21px; }
+
+  a { color: inherit; text-decoration: none; }
+  button { color: inherit; font: inherit; }
+
+  :focus-visible { outline: 3px solid #8b9d78; outline-offset: 3px; }
+
+  ::selection { background: #dbe5cd; color: #22382a; }
 }
 
 /* ============================================================================
-   2.5D COZY WAFFLE KITCHEN SURFACE SYSTEM
+   EDITORIAL KITCHEN SURFACE SYSTEM
+   Paper, soft sage, terracotta. No chunky bevels — hairlines and quiet shadow.
    ============================================================================ */
 
-/* Embossed Waffle-Iron Wall Grid (#FFF8EB base, #F3DFC1 ribs, #E6C79C pockets) */
+/* Warm paper canvas with an almost-invisible grain */
+.paper-surface {
+  background-color: var(--paper);
+  background-image:
+    radial-gradient(ellipse 70% 50% at 50% -10%, #ffffffcc 0%, transparent 70%),
+    radial-gradient(circle at 1px 1px, #21382e08 1px, transparent 0);
+  background-size: 100% 100%, 22px 22px;
+}
+
+/* The old waffle wall becomes a plain soft tile wall (used behind the hub) */
 .waffle-wall-surface {
-  background-color: #FFF8EB;
+  background-color: #f2f2e9;
   background-image:
-    radial-gradient(ellipse 90% 60% at 50% 0%, rgba(255, 251, 235, 0.88) 0%, rgba(255, 248, 235, 0.25) 55%, rgba(230, 199, 156, 0.28) 100%),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='68' height='68' viewBox='0 0 68 68'%3E%3Crect width='68' height='68' fill='%23FFF8EB'/%3E%3Crect x='2' y='2' width='64' height='64' rx='12' fill='none' stroke='%23F3DFC1' stroke-width='2'/%3E%3Crect x='9' y='9' width='50' height='50' rx='10' fill='%23F7E8CF'/%3E%3Cpath d='M19 10.5 H49 A8.5 8.5 0 0 1 57.5 19 V21 A8.5 8.5 0 0 0 49 12.5 H19 A8.5 8.5 0 0 0 10.5 21 V19 A8.5 8.5 0 0 1 19 10.5 Z' fill='%23E6C79C' opacity='0.82'/%3E%3Cpath d='M10.5 19 V49 A8.5 8.5 0 0 0 13 55 V20 A7 7 0 0 1 20 13 H55 A8.5 8.5 0 0 0 49 10.5 H19 A8.5 8.5 0 0 0 10.5 19 Z' fill='%23DFBA88' opacity='0.52'/%3E%3Cpath d='M18 57.5 H49 A8.5 8.5 0 0 0 57.5 49 V20 A7 7 0 0 1 55.5 48 A7.5 7.5 0 0 1 48 55.5 H18 Z' fill='%23FFFFFF' opacity='0.88'/%3E%3C/svg%3E");
-  background-size: 100% 100%, 68px 68px;
+    linear-gradient(180deg, #f7f6ef 0%, #f2f2e9 100%),
+    linear-gradient(90deg, #e9eadf 1px, transparent 1px),
+    linear-gradient(180deg, #e9eadf 1px, transparent 1px);
+  background-size: 100% 100%, 78px 78px, 78px 78px;
+  background-blend-mode: normal, soft-light, soft-light;
 }
 
-/* Recessed Waffle Cell Box */
 .waffle-recess {
-  background: #F6E6CC;
-  border: 1.5px solid #E6C79C;
-  box-shadow:
-    inset 2px 2px 4px rgba(139, 90, 43, 0.14),
-    inset -2px -2px 4px rgba(255, 255, 255, 0.85);
+  background: #f4f5ec;
+  border: 1px solid #e5e7db;
+  box-shadow: inset 0 1px 2px #21382e0a;
 }
 
-/* Honey-Oak Wooden Shelf & Cutting Board Textures */
-.wood-shelf-surface {
-  background:
-    linear-gradient(180deg, rgba(255, 245, 224, 0.35) 0%, rgba(180, 112, 52, 0.08) 100%),
-    repeating-linear-gradient(
-      90deg,
-      #E8B87D 0px,
-      #E5B274 48px,
-      #DFA868 96px,
-      #E8B87D 144px
-    );
-  border-color: #9A5F28;
-  box-shadow:
-    inset 0 2px 0 rgba(255, 250, 238, 0.72),
-    0 8px 20px rgba(74, 42, 16, 0.18);
+/* Panel: the site's quiet card with a hairline border */
+.panel-surface {
+  background: var(--surface);
+  border: 1px solid #e5e6db;
+  border-radius: 12px;
+  box-shadow: 0 2px 5px #2a3c2507;
 }
 
-.wood-interior-back {
-  background-color: #6B3F1D;
-  background-image:
-    radial-gradient(ellipse 80% 45% at 50% 8%, rgba(255, 224, 150, 0.32) 0%, rgba(72, 38, 14, 0.35) 100%),
-    repeating-linear-gradient(
-      90deg,
-      rgba(255, 219, 172, 0.05) 0px,
-      rgba(255, 219, 172, 0.05) 58px,
-      rgba(35, 16, 4, 0.25) 58px,
-      rgba(35, 16, 4, 0.25) 61px
-    );
+.soft-surface {
+  background: #fafbf5;
+  border: 1px solid #e4e8dc;
+  border-radius: 9px;
 }
 
+/* ---- Re-skinned legacy utility classes -------------------------------
+   The 44 tool modules use these class names heavily. Rather than touch
+   every file, they are redefined here in the editorial language: flat
+   sage buttons, hairline cards, quiet shadows.
+   -------------------------------------------------------------------- */
+
+.toy-btn,
+.toy-btn-cream,
+.toy-btn-primary,
+.toy-btn-gold,
+.toy-btn-mint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 8px 14px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: center;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.16s ease, border-color 0.16s ease,
+              color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease,
+              filter 0.16s ease;
+}
+
+.toy-btn,
+.toy-btn-primary {
+  background: #3d5544;
+  color: #faf9ed;
+  border-color: #3d5544;
+}
+.toy-btn:hover,
+.toy-btn-primary:hover { background: #203f2d; border-color: #203f2d; }
+
+.toy-btn-cream {
+  background: #fafbf5;
+  color: #52644f;
+  border-color: #dfe5d2;
+}
+.toy-btn-cream:hover { background: #edf0e4; border-color: #cfd8c2; }
+
+.toy-btn-gold {
+  background: #f2f2e8;
+  color: #7a6a3f;
+  border-color: #e2e0cb;
+}
+.toy-btn-gold:hover { background: #eaeadc; }
+
+.toy-btn-mint {
+  background: #edf0e4;
+  color: #41603f;
+  border-color: #d9e2cf;
+}
+.toy-btn-mint:hover { background: #e3e9d7; }
+
+.toy-btn:active,
+.toy-btn-cream:active,
+.toy-btn-primary:active,
+.toy-btn-gold:active,
+.toy-btn-mint:active { transform: translateY(1px); }
+
+.toy-btn:disabled,
+.toy-btn-cream:disabled,
+.toy-btn-primary:disabled,
+.toy-btn-gold:disabled,
+.toy-btn-mint:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.toy-input {
+  width: 100%;
+  border: 1px solid #dce1d1;
+  border-radius: 7px;
+  background: #fafbf5;
+  color: #354239;
+  padding: 11px 12px;
+  font-family: var(--sans);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.16s, box-shadow 0.16s;
+}
+.toy-input::placeholder { color: #9c9e92; }
+.toy-input:focus {
+  border-color: #879e72;
+  box-shadow: 0 0 0 3px #879e7215;
+}
+
+.toy-card {
+  background: var(--surface);
+  border: 1px solid #e5e6db;
+  border-radius: 11px;
+  box-shadow: 0 2px 5px #2a3c2507;
+}
+
+.toy-panel {
+  background: #fafbf5;
+  border: 1px solid #e1e6d8;
+  border-radius: 9px;
+}
+
+.toy-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  border: 1px solid #e1e5d6;
+  background: #f4f6ec;
+  padding: 3px 10px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #61745b;
+}
+
+.toy-element {
+  background: var(--surface);
+  border: 1px solid #e5e6db;
+  border-radius: 10px;
+}
+
+/* Legacy wood/cutting-board classes collapse into quiet paper. */
 .cutting-board-frame {
-  background:
-    radial-gradient(circle at 18% 12%, rgba(255, 246, 224, 0.35), transparent 55%),
-    repeating-linear-gradient(
-      0deg,
-      #E9BC84 0px,
-      #E9BC84 34px,
-      #E1B073 34px,
-      #E1B073 68px,
-      #E6B67B 68px,
-      #E6B67B 102px
-    );
-  border: 3px solid #9C612B;
-  border-bottom-width: 10px;
-  border-bottom-color: #7A491D;
-  box-shadow:
-    inset 0 3px 0 rgba(255, 250, 235, 0.75),
-    0 20px 42px rgba(68, 37, 12, 0.22);
+  background: transparent;
 }
-
 .cutting-board-groove {
-  border: 2.5px solid rgba(139, 82, 32, 0.28);
-  box-shadow:
-    inset 1.5px 1.5px 3px rgba(110, 62, 20, 0.2),
-    0 1.5px 0 rgba(255, 248, 232, 0.65);
+  background: transparent;
+}
+.wood-shelf-surface,
+.wood-interior-back {
+  background: #f2f2e9;
+  border-color: #e2e5d9;
+  box-shadow: none;
 }
 
-/* ============================================================================
-   2.5D CHUNKY BEVEL COMPONENT STANDARD
-   ============================================================================ */
-
-@layer components {
-  .toy-card {
-    @apply rounded-2xl bg-[#FFFDF9] border-2 border-b-[6px] border-[#E2C6A2] transition-all;
-    box-shadow:
-      inset 0 2px 0 rgba(255, 255, 255, 0.85),
-      0 8px 18px rgba(85, 48, 18, 0.11);
-  }
-
-  .toy-panel {
-    @apply rounded-2xl bg-[#FFF9EF] border-2 border-b-[5px] border-[#E6C79C];
-    box-shadow:
-      inset 0 2px 0 rgba(255, 255, 255, 0.78),
-      0 5px 12px rgba(85, 48, 18, 0.08);
-  }
-
-  .toy-btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl font-display font-semibold
-           border-2 border-b-[5px] select-none cursor-pointer
-           transition-[transform,border-width,background-color,box-shadow,filter] duration-100
-           active:translate-y-[3px] active:border-b-[2px] disabled:opacity-50 disabled:pointer-events-none;
-    box-shadow:
-      inset 0 2px 0 rgba(255, 255, 255, 0.62),
-      0 4px 10px rgba(74, 42, 16, 0.13);
-  }
-
-  .toy-btn:hover {
-    filter: brightness(1.03);
-  }
-
-  .toy-btn-cream {
-    @apply toy-btn bg-[#FFFDF8] hover:bg-[#FFF6E5] text-[#4A2B13] border-[#D9B68C];
-  }
-
-  .toy-btn-primary {
-    @apply toy-btn bg-gradient-to-b from-[#FF6B6B] to-[#EF4444] text-white border-[#991B1B];
-    text-shadow: 0 1.5px 0 rgba(120, 16, 16, 0.45);
-  }
-
-  .toy-btn-gold {
-    @apply toy-btn bg-gradient-to-b from-[#FCD34D] to-[#F59E0B] text-[#4A2506] border-[#92400E];
-    box-shadow:
-      inset 0 2px 0 rgba(255, 255, 255, 0.78),
-      0 5px 14px rgba(180, 83, 9, 0.25);
-  }
-
-  .toy-btn-mint {
-    @apply toy-btn bg-gradient-to-b from-[#4ADE80] to-[#22C55E] text-white border-[#166534];
-    text-shadow: 0 1.5px 0 rgba(16, 85, 42, 0.45);
-  }
-
-  .toy-input {
-    @apply w-full rounded-xl bg-[#FFFDF9] border-2 border-[#DEC098] px-3.5 py-2.5 text-[#3B2314]
-           placeholder:text-[#A98768] focus:outline-none focus:border-[#D97706] focus:ring-4 focus:ring-[#FDE68A]/60
-           transition-all;
-    box-shadow: inset 0 2px 4px rgba(139, 90, 43, 0.09);
-  }
-
-  .toy-pill {
-    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold
-           border-2 border-b-[3px];
-    box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.65);
-  }
-}
-
-/* 3D Extruded Splash Banner Title */
+/* Editorial masthead (was the 3D extruded splash banner) */
 .splash-title-3d {
-  font-family: 'Fredoka', 'Nunito', sans-serif;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: #FFFDF7;
-  -webkit-text-stroke: 3px #6B3410;
-  paint-order: stroke fill;
-  text-shadow:
-    0 2px 0 #F59E0B,
-    0 4px 0 #D97706,
-    0 6px 0 #B45309,
-    0 8px 0 #78350F,
-    0 11px 0 #4A2108,
-    0 16px 26px rgba(74, 33, 8, 0.34);
+  font-family: var(--serif);
+  font-weight: 500;
+  letter-spacing: -2.4px;
+  color: #253f31;
+  -webkit-text-stroke: 0;
+  text-shadow: none;
 }
 
 .splash-title-accent {
-  font-family: 'Fredoka', 'Nunito', sans-serif;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  color: #FFE066;
-  -webkit-text-stroke: 3px #6B3410;
-  paint-order: stroke fill;
-  text-shadow:
-    0 2px 0 #EA580C,
-    0 4px 0 #C2410C,
-    0 6px 0 #9A3412,
-    0 8px 0 #6B210B,
-    0 14px 24px rgba(74, 33, 8, 0.34);
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 500;
+  letter-spacing: -1.6px;
+  color: #67844f;
+  -webkit-text-stroke: 0;
+  text-shadow: none;
 }
 
 /* Authentic Roman Numeral Vinculum Overline Bar */
@@ -434,4 +501,380 @@
 .bsu-markdown img {
   max-width: 100%;
   border-radius: 0.75rem;
+}
+
+
+/* ============================================================================
+   KITCHEN SCENE — a CSS-only still life, echoing the live site's hero panel.
+   ============================================================================ */
+
+.kitchen-scene {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border-radius: 18px;
+  background: linear-gradient(100deg, #eeefe2 0%, #e9e8d8 42%, #e8e7d5 100%);
+  border: 1px solid #e2e5d6;
+  min-height: 100%;
+}
+
+/* warm sun glow in the top-left */
+.scene-sun {
+  position: absolute;
+  inset: -30% auto auto -10%;
+  width: 55%;
+  height: 90%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, #fffdf0d9, #fffdf000);
+  filter: blur(6px);
+  z-index: 0;
+}
+
+/* a tiled splashback behind the counter */
+.scene-tiles {
+  position: absolute;
+  inset: 0 0 34% 0;
+  background-image:
+    linear-gradient(90deg, #dfe1d0 1px, transparent 1px),
+    linear-gradient(180deg, #dfe1d0 1px, transparent 1px);
+  background-size: 46px 46px;
+  opacity: 0.5;
+  mask-image: linear-gradient(180deg, #000 0%, transparent 92%);
+}
+
+/* window with hills + cloud */
+.scene-window {
+  position: absolute;
+  top: 13%;
+  left: 8%;
+  width: 27%;
+  height: 42%;
+  border-radius: 6px;
+  background: #fdfcf3;
+  border: 1px solid #d9dcc9;
+  box-shadow: inset 0 0 0 5px #f7f6ec, 0 6px 16px #2b3d2410;
+  overflow: hidden;
+  z-index: 1;
+}
+.scene-window-sky {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, #f4f6e8 0%, #e8efdc 60%, #dfe8d0 100%);
+}
+.scene-hill {
+  position: absolute;
+  bottom: -18%;
+  border-radius: 50% 50% 0 0;
+  background: #cdd8b9;
+}
+.scene-hill.h1 { left: -12%; width: 78%; height: 52%; background: #c6d3b1; }
+.scene-hill.h2 { right: -14%; width: 70%; height: 40%; background: #d3ddc1; }
+.scene-cloud {
+  position: absolute;
+  top: 18%;
+  left: 30%;
+  width: 40%;
+  height: 13%;
+  border-radius: 999px;
+  background: #fffef6;
+  opacity: 0.9;
+}
+.scene-window-v {
+  position: absolute;
+  inset: 0 auto 0 50%;
+  width: 2px;
+  background: #f7f6ece0;
+}
+.scene-window-h {
+  position: absolute;
+  inset: 46% 0 auto 0;
+  height: 2px;
+  background: #f7f6ece0;
+}
+.scene-sill {
+  position: absolute;
+  left: -6%;
+  right: -6%;
+  bottom: -5px;
+  height: 8px;
+  border-radius: 3px;
+  background: #e6e4d3;
+  box-shadow: 0 3px 6px #2b3d2412;
+}
+
+/* open shelf with jars */
+.scene-shelf {
+  position: absolute;
+  top: 12%;
+  right: 7%;
+  width: 34%;
+  height: 7px;
+  border-radius: 2px;
+  background: #ded9c4;
+  box-shadow: 0 4px 8px #2b3d2412;
+  z-index: 1;
+}
+.scene-jar {
+  position: absolute;
+  bottom: 7px;
+  border-radius: 3px 3px 4px 4px;
+  background: linear-gradient(180deg, #f3f0e2cc, #e7e3d0);
+  border: 1px solid #d5d2bd;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 3px;
+  font-size: 5px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #8d8c72;
+}
+.scene-jar::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: 12%;
+  right: 12%;
+  height: 4px;
+  border-radius: 2px;
+  background: #cfcbb4;
+}
+.scene-jar.j1 { left: 4%; width: 24%; height: 40px; }
+.scene-jar.j2 { left: 33%; width: 26%; height: 52px; }
+.scene-jar.j3 { left: 64%; width: 22%; height: 34px; }
+
+/* hanging utensils */
+.scene-hang {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  background: linear-gradient(180deg, #cfcdb8, #ecead9);
+  z-index: 1;
+}
+.scene-hang::after {
+  content: '';
+  position: absolute;
+  bottom: -14px;
+  left: -5px;
+  width: 11px;
+  height: 16px;
+  border-radius: 2px 2px 5px 5px;
+  background: #ded9c3;
+  border: 1px solid #cfcab3;
+}
+.scene-hang.h1 { left: 62%; height: 34px; }
+.scene-hang.h2 { left: 70%; height: 48px; }
+.scene-hang.h3 { left: 78%; height: 30px; }
+
+/* counter + chopping board + mug */
+.scene-counter {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 34%;
+  background: linear-gradient(180deg, #e9e3cd 0%, #e2dcc4 26%, #d8d2b8 100%);
+  border-top: 1px solid #d5cfb6;
+  z-index: 2;
+}
+.scene-board {
+  position: absolute;
+  right: 16%;
+  bottom: 18%;
+  width: 42%;
+  height: 13%;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #e7d3ae, #dcc39a);
+  border: 1px solid #cdb389;
+  box-shadow: 0 5px 12px #6b532613;
+  z-index: 3;
+}
+.scene-board::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 8%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #d3bb92;
+  border: 1px solid #c8ae83;
+  transform: translateY(-50%);
+}
+.scene-mug {
+  position: absolute;
+  right: 6%;
+  bottom: 26%;
+  width: 30px;
+  height: 34px;
+  border-radius: 4px 4px 8px 8px;
+  background: linear-gradient(180deg, #f6f2e4, #e9e3d2);
+  border: 1px solid #d6d0bb;
+  box-shadow: 0 4px 10px #6b532612;
+  z-index: 3;
+}
+.scene-mug::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  right: -9px;
+  width: 12px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid #ddd7c2;
+  border-left: 0;
+}
+.scene-steam {
+  position: absolute;
+  bottom: 100%;
+  width: 2px;
+  height: 16px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #ffffff00, #ffffffb0);
+  opacity: 0.75;
+  animation: steam-rise 4.4s ease-in-out infinite;
+}
+.scene-steam.s1 { left: 8px; animation-delay: 0s; }
+.scene-steam.s2 { left: 16px; animation-delay: 1.5s; }
+
+/* a small plant on the counter */
+.scene-plant {
+  position: absolute;
+  left: 9%;
+  bottom: 34%;
+  width: 26px;
+  height: 22px;
+  border-radius: 3px 3px 7px 7px;
+  background: #e5dfc8;
+  border: 1px solid #d2ccb4;
+  z-index: 3;
+}
+.scene-plant::before,
+.scene-plant::after {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  width: 12px;
+  height: 18px;
+  border-radius: 50% 50% 50% 4px;
+  background: #b8c9a0;
+}
+.scene-plant::before { left: -3px; transform: rotate(-18deg); }
+.scene-plant::after { left: 12px; transform: rotate(16deg) scale(0.86); background: #c3d2ad; }
+
+.scene-note {
+  position: absolute;
+  left: 8%;
+  bottom: 8%;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 11px;
+  color: #7d8266;
+  z-index: 4;
+}
+
+/* ---- sidebar / topbar / footer shell primitives ---- */
+
+.kitchen-sidebar {
+  background: #213b30;
+  color: #f6f2e6;
+  border: 0;
+  box-shadow: 8px 0 28px #20332610;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 12px;
+  margin: 2px 0;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  color: #c3d2c1;
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+.nav-item:hover { background: #2a483a; color: #f3f7ee; }
+.nav-item.is-active { background: #355945; color: #fbfdf6; font-weight: 600; }
+
+.nav-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #8ba394;
+  margin: 26px 10px 10px;
+}
+
+.nav-emoji {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: color-mix(in srgb, var(--cup, #6d8a6a) 32%, transparent);
+}
+
+.topbar-shell {
+  background: #faf8f1eb;
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--line);
+  height: 72px;
+}
+
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  letter-spacing: 1.8px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #536c53;
+}
+.eyebrow::before {
+  content: '';
+  width: 16px;
+  height: 1px;
+  background: #9aa885;
+}
+
+.hero-shell {
+  border-radius: 20px;
+  background: #eeefe2;
+  border: 1px solid #e2e5d6;
+  box-shadow: 0 12px 36px #2738210a;
+}
+
+.local-badge {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 9.5px;
+  color: #9fb3a3;
+}
+.local-badge i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #7fb08a;
+  box-shadow: 0 0 0 3px #7fb08a22;
+}
+
+.mini-cabinet {
+  position: relative;
+  width: 26px;
+  height: 20px;
+  border-radius: 3px;
+  background: #d8d3bd;
+  border: 1px solid #c9c4ac;
+}
+.mini-cabinet span {
+  position: absolute;
+  inset: 3px;
+  border: 1px solid #ffffff70;
+  border-radius: 2px;
 }

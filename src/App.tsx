@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AnimatePresence } from 'framer-motion';
-import { WaffleBackdrop } from './components/ui/WaffleBackdrop';
 import { KitchenHeader } from './components/ui/KitchenHeader';
 import { BootSplashScreen } from './components/splash/BootSplashScreen';
 import { WaffleWallHub } from './components/kitchen/WaffleWallHub';
@@ -26,6 +25,7 @@ import {
 type KitchenView =
   | { stage: 'splash' }
   | { stage: 'hub' }
+  | { stage: 'hall' }
   | { stage: 'cupboard'; cupboardId: CupboardId }
   | { stage: 'tool'; toolId: string };
 
@@ -34,6 +34,7 @@ function parseHashToView(): KitchenView | null {
   const hash = window.location.hash.replace(/^#\/?/, '').trim();
   if (!hash) return null;
   if (hash === 'kitchen') return { stage: 'hub' };
+  if (hash === 'hall-of-fame') return { stage: 'hall' };
   if (hash.startsWith('cupboard/')) {
     const id = hash.slice('cupboard/'.length) as CupboardId;
     try {
@@ -65,6 +66,7 @@ export const App: React.FC = () => {
     setView(next);
     let nextHash = '';
     if (next.stage === 'hub') nextHash = '#/kitchen';
+    else if (next.stage === 'hall') nextHash = '#/hall-of-fame';
     else if (next.stage === 'cupboard') nextHash = `#/cupboard/${next.cupboardId}`;
     else if (next.stage === 'tool') nextHash = `#/tool/${next.toolId}`;
     if (window.location.hash !== nextHash) {
@@ -127,10 +129,7 @@ export const App: React.FC = () => {
       : 'Waffle Kitchen Wall';
 
   return (
-    <div className="min-h-screen relative overflow-x-clip">
-      {/* Persistent Embossed Waffle-Iron Kitchen Wall & Parallax Crumbs/Steam */}
-      <WaffleBackdrop />
-
+    <div className="paper-surface min-h-screen overflow-x-clip">
       {view.stage === 'splash' ? (
         <AnimatePresence mode="wait">
           <BootSplashScreen onLaunch={() => navigate({ stage: 'hub' })} />
@@ -144,8 +143,20 @@ export const App: React.FC = () => {
             onOpenSearch={() => setSearchOpen(true)}
             onOpenLunchbox={() => setLunchboxOpen(true)}
             onOpenSettings={() => setSettingsOpen(true)}
-            favoriteCount={favorites.length}
+            onOpenHall={() => navigate({ stage: 'hall' })}
+            onOpenCupboard={(cupboardId) => navigate({ stage: 'cupboard', cupboardId })}
+            favoriteCount={activeTool && favorites.includes(activeTool.id) ? favorites.length : favorites.length}
+            hallCount={hall.length}
             activeLocationLabel={activeLocationLabel}
+            activeCupboardId={
+              view.stage === 'cupboard'
+                ? view.cupboardId
+                : activeTool
+                  ? activeTool.cupboardId
+                  : undefined
+            }
+            activeToolId={view.stage === 'tool' ? view.toolId : undefined}
+            activeStage={view.stage === 'hall' ? 'hub' : view.stage}
           />
 
           {/* Spatial Kitchen Navigation Stage */}
@@ -157,17 +168,16 @@ export const App: React.FC = () => {
                     onOpenCupboard={(cupboardId) => navigate({ stage: 'cupboard', cupboardId })}
                     onQuickOpenTool={(toolId) => navigate({ stage: 'tool', toolId })}
                   />
+                </div>
+              )}
+
+              {view.stage === 'hall' && (
+                <div key="hall-page" className="mx-auto w-full max-w-[1180px] px-4 pb-24 sm:px-8">
                   <HallOfFame
                     hall={hall}
                     onSelectTool={handleSelectTool}
                     onRemove={handleToggleHall}
-                    onBrowse={() => {
-                      const target =
-                        document.querySelector<HTMLElement>('[data-cupboard-card="text-files"]') ??
-                        document.querySelector<HTMLElement>('[data-cupboard-card]');
-                      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                      else window.scrollTo({ top: 0, behavior: 'smooth' });
-                    }}
+                    onBrowse={() => navigate({ stage: 'hub' })}
                   />
                 </div>
               )}
@@ -196,6 +206,8 @@ export const App: React.FC = () => {
                   onBackToCupboard={() =>
                     navigate({ stage: 'cupboard', cupboardId: activeTool.cupboardId })
                   }
+                  isHall={hall.includes(activeTool.id)}
+                  onToggleHall={() => handleToggleHall(activeTool.id)}
                 />
               )}
             </AnimatePresence>

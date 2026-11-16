@@ -25,17 +25,17 @@ export class ToolErrorBoundary extends React.Component<ErrorBoundaryProps, Error
   render() {
     if (this.state.error) {
       return (
-        <div className="toy-panel p-8 text-center max-w-lg mx-auto my-10">
-          <div className="w-14 h-14 rounded-2xl bg-[#FEE2E2] border-2 border-[#EF4444] flex items-center justify-center mx-auto mb-4 text-[#B91C1C]">
+        <div className="mx-auto my-10 max-w-lg rounded-lg border border-dashed border-[#e1e5d6] p-8 text-center">
+          <div className="mx-auto mb-4 grid h-11 w-11 place-items-center rounded-lg bg-[#fbeeeb] text-[#ae5a4b]">
             <AlertTriangle className="w-7 h-7" />
           </div>
-          <h3 className="font-display text-xl font-bold text-[#3B2314] mb-2">
+          <h3 className="mb-2 font-serif text-[21px] text-[#41573f]">
             Oops — Something Spilled on the Cutting Board!
           </h3>
-          <p className="text-sm text-[#6B4423] mb-5 font-mono bg-[#FFF3E0] rounded-xl p-3 border border-[#E6C79C] break-words">
+          <p className="mb-5 break-words rounded-lg border border-[#ecdcd5] bg-[#fdf5f2] p-3 font-mono text-[11.5px] text-[#8a5c50]">
             {this.state.error.message}
           </p>
-          <button onClick={this.handleReset} className="toy-btn-primary px-5 py-2.5 text-sm">
+          <button onClick={this.handleReset} className="toy-btn-primary px-5 py-2.5 text-[12.5px]">
             <RotateCcw className="w-4 h-4" />
             Reset Tool
           </button>
@@ -46,14 +46,17 @@ export class ToolErrorBoundary extends React.Component<ErrorBoundaryProps, Error
   }
 }
 
-export const WaffleLoader: React.FC<{ label?: string }> = ({ label = 'Warming up tool...' }) => (
-  <div className="flex flex-col items-center justify-center py-20 gap-4">
-    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#FCD34D] to-[#F59E0B] border-2 border-b-[5px] border-[#92400E] grid grid-cols-2 gap-1.5 p-2.5 animate-bounce shadow-toy">
-      <span className="rounded bg-[#C2640A]/75" />
-      <span className="rounded bg-[#C2640A]/75" />
-      <span className="rounded bg-[#C2640A]/75" />
-      <span className="rounded bg-[#C2640A]/75" />
+export const WaffleLoader: React.FC<{ label?: string }> = ({ label = 'Warming up tool…' }) => (
+  <div className="flex flex-col items-center justify-center gap-4 py-20">
+    <div className="grid h-11 w-11 grid-cols-2 gap-1 rounded-lg border border-[#dfe5d2] bg-[#f2f4e8] p-2">
+      {[0, 1, 2, 3].map((i) => (
+        <span
+          key={i}
+          className="animate-pulse rounded-sm bg-[#b9c9a8]"
+          style={{ animationDelay: `${i * 120}ms` }}
+        />
+      ))}
     </div>
-    <p className="font-display font-semibold text-[#78350F] text-base">{label}</p>
+    <p className="text-[12px] text-[#8c947e]">{label}</p>
   </div>
 );

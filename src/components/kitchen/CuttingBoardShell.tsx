@@ -12,22 +12,26 @@ interface CuttingBoardShellProps {
   isFavorite: boolean;
   onToggleFavorite: () => void;
   onBackToCupboard: () => void;
+  isHall?: boolean;
+  onToggleHall?: () => void;
 }
 
 /**
- * Phase 3: The Tactile 2.5D Wooden Cutting Board / Recipe Card Tool Workspace
- * - Top bar with "← Back to [Cupboard Name]", tool title, "Pin to Lunchbox ★", "Reset Tool"
- * - Full-width responsive max-w-7xl interactive utility canvas
+ * The tool page: a back link, an editorial heading with the tool's icon and
+ * description, then the tool itself on a plain paper card. No cutting board.
  */
 export const CuttingBoardShell: React.FC<CuttingBoardShellProps> = ({
   tool,
   isFavorite,
   onToggleFavorite,
   onBackToCupboard,
+  isHall = false,
+  onToggleHall,
 }) => {
   const cupboard = getCupboardById(tool.cupboardId);
   const [resetNonce, setResetNonce] = useState(0);
   const ToolComponent = tool.component;
+  const { base, shadow } = cupboard.palette;
 
   const handleReset = () => {
     soundEngine.playPop(0.92);
@@ -37,112 +41,119 @@ export const CuttingBoardShell: React.FC<CuttingBoardShellProps> = ({
   return (
     <motion.div
       key={tool.id}
-      initial={{ opacity: 0, y: 18, scale: 0.97 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 10, scale: 0.98 }}
-      transition={{ duration: 0.38, ease: [0.34, 1.56, 0.64, 1] }}
-      className="relative z-10 max-w-7xl mx-auto px-2.5 sm:px-6 pt-5 pb-28"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 6 }}
+      transition={{ duration: 0.3, ease: [0.2, 0.8, 0.2, 1] }}
+      className="mx-auto w-full max-w-[1180px] px-4 pb-28 pt-7 sm:px-8"
     >
-      {/* Tactile 2.5D Butcher-Block Wooden Cutting Board */}
-      <div className="cutting-board-frame rounded-[1.85rem] p-2.5 sm:p-4">
-        <div className="cutting-board-groove rounded-[1.45rem] p-2 sm:p-3.5">
-          {/* Top Cutting Board Toolbar */}
-          <div className="rounded-2xl bg-[#FFFDF9] border-2 border-b-[5px] border-[#C99B66] px-3.5 sm:px-5 py-3 mb-3.5 flex flex-wrap items-center justify-between gap-3 shadow-toy-sm">
-            {/* Left: Back to Cupboard + Decorative Cutting Board Handle Hole */}
-            <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
-              <button
-                type="button"
-                onClick={() => {
-                  soundEngine.playPop(0.96);
-                  onBackToCupboard();
-                }}
-                className="toy-btn px-3 sm:px-4 py-2 text-xs sm:text-sm text-white shrink-0"
-                style={{
-                  background: `linear-gradient(180deg, ${cupboard.palette.base} 0%, ${cupboard.palette.shadow} 145%)`,
-                  borderColor: cupboard.palette.shadow,
-                }}
-              >
-                <ArrowLeft className="w-4 h-4" />
-                <span>Back to {cupboard.name}</span>
-              </button>
+      {/* ------------------------------ back row ----------------------------- */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => {
+            soundEngine.playPop(0.96);
+            onBackToCupboard();
+          }}
+          className="inline-flex items-center gap-1.5 text-[11px] text-[#8b9a83] transition-colors hover:text-[#4c6152]"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.7} />
+          Back to {cupboard.name}
+        </button>
 
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div
-                  className="hidden sm:flex w-10 h-10 rounded-xl border-2 border-b-[4px] items-center justify-center shrink-0"
-                  style={{
-                    backgroundColor: cupboard.palette.surface,
-                    borderColor: cupboard.palette.base,
-                    color: cupboard.palette.shadow,
-                  }}
-                >
-                  <ToolIcon name={tool.iconName} className="w-5 h-5" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h1 className="font-display font-bold text-lg sm:text-xl text-[#3B2314] truncate">
-                      {tool.name}
-                    </h1>
-                    {tool.isStar && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#FEF08A] border border-[#B45309] text-[#78350F] font-display font-bold text-[10.5px]">
-                        <Star className="w-3 h-3 fill-[#F59E0B] text-[#B45309]" />
-                        STAR
-                      </span>
-                    )}
-                    <span className="hidden lg:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#ECFDF5] border border-[#86EFAC] text-[#14532D] text-[10.5px] font-bold">
-                      <ShieldCheck className="w-3 h-3 text-[#16A34A]" />
-                      100% Local
-                    </span>
-                  </div>
-                  <p className="hidden md:block text-xs text-[#7A5433] truncate max-w-xl">
-                    {tool.shortDescription}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Right: Pin to Lunchbox ★ + Reset Tool */}
-            <div className="flex items-center gap-2 shrink-0 ml-auto">
-              <button
-                type="button"
-                onClick={onToggleFavorite}
-                className={`toy-btn px-3 sm:px-3.5 py-2 text-xs sm:text-sm ${
-                  isFavorite
-                    ? 'bg-gradient-to-b from-[#FEF08A] to-[#FBBF24] border-[#92400E] text-[#4A2506]'
-                    : 'bg-[#FFFDF8] border-[#D4AA78] text-[#5C3415] hover:bg-[#FFF6E5]'
-                }`}
-              >
-                <Star
-                  className={`w-4 h-4 ${
-                    isFavorite ? 'fill-[#D97706] text-[#92400E]' : 'text-[#A07855]'
-                  }`}
-                />
-                <span className="hidden sm:inline">
-                  {isFavorite ? 'Pinned in Lunchbox ★' : 'Pin to Lunchbox ★'}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleReset}
-                className="toy-btn-cream px-3 sm:px-3.5 py-2 text-xs sm:text-sm"
-                title="Reset tool to clean initial state"
-              >
-                <RotateCcw className="w-4 h-4 text-[#B45309]" />
-                <span className="hidden sm:inline">Reset Tool</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Recipe Card Interactive Tool Surface */}
-          <div className="rounded-2xl bg-[#FFFDF9] border-2 border-b-[6px] border-[#D7B386] p-3.5 sm:p-6 min-h-[540px] shadow-[inset_0_2px_0_rgba(255,255,255,0.9)]">
-            <ToolErrorBoundary key={`eb-${tool.id}-${resetNonce}`} onReset={handleReset}>
-              <Suspense fallback={<WaffleLoader label={`Plating ${tool.name}...`} />}>
-                <ToolComponent key={`${tool.id}-${resetNonce}`} />
-              </Suspense>
-            </ToolErrorBoundary>
-          </div>
-        </div>
+        <span className="inline-flex items-center gap-1.5 text-[10.5px] text-[#8c987b]">
+          <ShieldCheck className="h-3 w-3" strokeWidth={1.7} />
+          Runs on your device
+        </span>
       </div>
+
+      {/* ------------------------------ heading ------------------------------ */}
+      <header className="flex flex-wrap items-start gap-4 py-6">
+        <span
+          className="grid h-[54px] w-[54px] shrink-0 place-items-center rounded-xl"
+          style={{
+            backgroundColor: `color-mix(in srgb, ${base} 20%, #fff)`,
+            color: shadow,
+          }}
+        >
+          <ToolIcon name={tool.iconName} className="h-6 w-6" strokeWidth={1.5} />
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-[clamp(26px,3vw,38px)] leading-tight">{tool.name}</h1>
+            {tool.isStar && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-[#fdf9ea] px-2 py-0.5 text-[9.5px] font-medium text-[#a8873f]">
+                <Star className="h-2.5 w-2.5 fill-[#c39144] text-[#c39144]" /> Star utility
+              </span>
+            )}
+          </div>
+          <p className="mt-1.5 max-w-3xl text-[12.5px] leading-relaxed text-[#89917f]">
+            {tool.shortDescription}
+          </p>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          {onToggleHall && (
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playStar();
+                onToggleHall();
+              }}
+              title={isHall ? 'Remove from Hall of Fame' : 'Add to Hall of Fame'}
+              className={`grid h-9 w-9 place-items-center rounded-lg border transition-colors ${
+                isHall
+                  ? 'border-[#e5c1b6] bg-[#fdf1ee] text-[#b47b78]'
+                  : 'border-[#e4e4d9] bg-[#fafbf5] text-[#a8b09b] hover:border-[#d3d8c7] hover:text-[#b47b78]'
+              }`}
+            >
+              <Star className={`h-4 w-4 ${isHall ? 'fill-[#e5c1b6]' : ''}`} strokeWidth={1.7} />
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.playStar();
+              onToggleFavorite();
+            }}
+            title={isFavorite ? 'Remove from favourites' : 'Add to favourites'}
+            className={`grid h-9 w-9 place-items-center rounded-lg border transition-colors ${
+              isFavorite
+                ? 'border-[#e5c1b6] bg-[#fdf1ee] text-[#b47b78]'
+                : 'border-[#e4e4d9] bg-[#fafbf5] text-[#a8b09b] hover:border-[#d3d8c7] hover:text-[#b47b78]'
+            }`}
+          >
+            <Star className={`h-4 w-4 ${isFavorite ? 'fill-[#e5c1b6]' : ''}`} strokeWidth={1.7} />
+          </button>
+
+          <button
+            type="button"
+            onClick={handleReset}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#dfe5d2] bg-[#fafbf5] px-3 text-[11px] text-[#52644f] transition-colors hover:bg-[#edf0e4]"
+            title="Reset this tool to its initial state"
+          >
+            <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.8} />
+            <span className="hidden sm:inline">Reset</span>
+          </button>
+        </div>
+      </header>
+
+      {/* --------------------------- the workspace --------------------------- */}
+      <div className="rounded-xl border border-[#e1e4d7] bg-[#fffefa] p-4 shadow-[0_2px_5px_#2a3c2507] sm:p-7">
+        <ToolErrorBoundary key={`eb-${tool.id}-${resetNonce}`} onReset={handleReset}>
+          <Suspense fallback={<WaffleLoader label={`Opening ${tool.name}…`} />}>
+            <ToolComponent key={`${tool.id}-${resetNonce}`} />
+          </Suspense>
+        </ToolErrorBoundary>
+      </div>
+
+      <p className="mt-6 text-center text-[10.5px] text-[#a0a58f]">
+        {tool.name} · part of {cupboard.name}. Nothing leaves this tab.
+      </p>
     </motion.div>
   );
 };
+
+export default CuttingBoardShell;

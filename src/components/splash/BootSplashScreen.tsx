@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ExternalLink, Github, ShieldCheck, Sparkles, Utensils } from 'lucide-react';
 import { WaffleCupMascot } from '../mascot/WaffleCupMascot';
+import { KitchenScene } from '../ui/KitchenScene';
 import { soundEngine } from '../../utils/soundEngine';
 
 interface BootSplashScreenProps {
@@ -42,178 +43,165 @@ export const BootSplashScreen: React.FC<BootSplashScreenProps> = ({ onLaunch }) 
       key="boot-splash"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0, scale: 1.12, filter: 'blur(4px)' }}
-      transition={{ duration: 0.45, ease: [0.34, 1.56, 0.64, 1] }}
-      className="relative z-10 min-h-screen flex flex-col justify-between overflow-hidden select-none"
+      exit={{ opacity: 0, scale: 1.02, filter: 'blur(3px)' }}
+      transition={{ duration: 0.4, ease: [0.2, 0.8, 0.2, 1] }}
+      className="paper-surface relative z-10 min-h-screen select-none overflow-hidden"
     >
-      {/* Top Cozy Cafe Awning Scallops */}
-      <div className="w-full overflow-hidden pointer-events-none">
-        <div
-          className="h-5 sm:h-6 w-full border-b-[4px] border-[#991B1B]"
-          style={{
-            background:
-              'repeating-linear-gradient(90deg, #EF4444 0px, #EF4444 36px, #FFFDF7 36px, #FFFDF7 72px)',
-          }}
-        />
-        <div className="flex w-full overflow-hidden opacity-90 -mt-[1px]">
-          {Array.from({ length: 44 }).map((_, idx) => (
-            <div
-              key={idx}
-              className={`h-3.5 w-9 shrink-0 rounded-b-full border-b-[3px] border-x ${
-                idx % 2 === 0
-                  ? 'bg-[#EF4444] border-[#991B1B]'
-                  : 'bg-[#FFFDF7] border-[#D9B68C]'
-              }`}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Main Splash Centerpiece */}
-      <div className="flex-1 flex flex-col items-center justify-center px-4 py-6 text-center max-w-4xl mx-auto">
-        {/* Top Zero-BS Ribbon Pill */}
+      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-[1080px] flex-col px-6 py-10 sm:px-10">
+        {/* top ribbon */}
         <motion.div
-          initial={{ y: -20, opacity: 0 }}
+          initial={{ y: -12, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: 0.08, duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}
-          className="toy-pill bg-[#FFFDF8] border-[#D9B68C] text-[#78350F] mb-2 shadow-toy-sm"
+          transition={{ delay: 0.06, duration: 0.45 }}
+          className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e5e7db] pb-5"
         >
-          <ShieldCheck className="w-3.5 h-3.5 text-[#16A34A]" />
-          <span>100% Browser-Local • Zero Paywalls • Zero Ads • Zero Uploads</span>
-        </motion.div>
-
-        {/* Adorable Animated 2.5D Waffle Coffee Cup Mascot */}
-        <motion.div
-          initial={{ scale: 0.65, y: 24, opacity: 0 }}
-          animate={{ scale: 1, y: [0, -7, 0], opacity: 1 }}
-          transition={{
-            scale: { duration: 0.6, ease: [0.34, 1.56, 0.64, 1] },
-            opacity: { duration: 0.4 },
-            y: { duration: 3.4, repeat: Infinity, ease: 'easeInOut' },
-          }}
-          whileHover={{ scale: 1.06, rotate: [-1.5, 1.5, 0] }}
-          onClick={() => soundEngine.playPop(1.15)}
-          className="cursor-pointer drop-shadow-[0_14px_20px_rgba(110,60,20,0.2)] -mb-2"
-          title="Good morning! Ready to cook up something awesome?"
-        >
-          <WaffleCupMascot
-            size={215}
-            showSteam
-            showSaucer
-            interactive
-            mood={hoveringLaunch ? 'excited' : 'happy'}
-          />
-        </motion.div>
-
-        {/* Chunky Multi-Layer 2.5D / 3D-Extruded Title Banner */}
-        <motion.div
-          initial={{ scale: 0.84, opacity: 0, y: 18 }}
-          animate={{ scale: 1, opacity: 1, y: [0, -5, 0] }}
-          transition={{
-            scale: { delay: 0.14, duration: 0.55, ease: [0.34, 1.56, 0.64, 1] },
-            opacity: { delay: 0.14, duration: 0.4 },
-            y: { delay: 0.5, duration: 4.1, repeat: Infinity, ease: 'easeInOut' },
-          }}
-          className="relative mb-5"
-        >
-          {/* Decorative Wooden Nameplate Backing */}
-          <div className="relative px-6 sm:px-10 py-4 sm:py-5 rounded-[2rem] bg-gradient-to-b from-[#FFEBC7] via-[#F7D7A3] to-[#E9BA79] border-[3px] border-b-[9px] border-[#8B5220] shadow-toy-lg">
-            {/* Corner brass rivets */}
-            <span className="absolute top-3 left-3.5 w-3 h-3 rounded-full bg-gradient-to-br from-[#FEF08A] to-[#B45309] border border-[#78350F]" />
-            <span className="absolute top-3 right-3.5 w-3 h-3 rounded-full bg-gradient-to-br from-[#FEF08A] to-[#B45309] border border-[#78350F]" />
-            <span className="absolute bottom-3 left-3.5 w-3 h-3 rounded-full bg-gradient-to-br from-[#FEF08A] to-[#B45309] border border-[#78350F]" />
-            <span className="absolute bottom-3 right-3.5 w-3 h-3 rounded-full bg-gradient-to-br from-[#FEF08A] to-[#B45309] border border-[#78350F]" />
-
-            <h1 className="leading-[0.98] tracking-tight">
-              <span className="block splash-title-3d text-4xl sm:text-6xl md:text-7xl">
-                BITE SIZED
-              </span>
-              <span className="block splash-title-accent text-4xl sm:text-6xl md:text-[4.35rem] mt-1">
-                UTILITIES
-              </span>
-            </h1>
-          </div>
-        </motion.div>
-
-        {/* Creator Credit 2.5D Pill Button (Required Direct Attribution Link) */}
-        <motion.a
-          href="https://github.com/the-creative-master"
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={() => soundEngine.playPop(1.08)}
-          initial={{ y: 16, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: 0.24, duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}
-          className="group inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full bg-[#FFFDF9] hover:bg-[#FEF3C7]
-                     border-2 border-b-[5px] border-[#C98A4B] text-[#4A2506] font-display font-semibold text-sm sm:text-base
-                     shadow-toy transition-all active:translate-y-[3px] active:border-b-[2px] mb-7"
-        >
-          <span className="w-7 h-7 rounded-full bg-[#3B2314] text-[#FFF8EB] flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-            <Github className="w-4 h-4" />
+          <span className="font-serif text-[20px] tracking-[-0.6px] text-[#253f31]">
+            BiteSized<span className="ml-1.5 font-sans text-[9px] uppercase tracking-[3px] text-[#8b9a7c]">utilities</span>
           </span>
-          <span>Made by the-creative-master, check out my GitHub account!</span>
-          <ExternalLink className="w-4 h-4 text-[#B45309] shrink-0 group-hover:translate-x-0.5 transition-transform" />
-        </motion.a>
-
-        {/* Bouncy Primary Launch Button ("Open the Kitchen!") */}
-        <motion.div
-          initial={{ scale: 0.85, opacity: 0, y: 18 }}
-          animate={{ scale: 1, opacity: 1, y: 0 }}
-          transition={{ delay: 0.32, duration: 0.55, ease: [0.34, 1.56, 0.64, 1] }}
-          className="flex flex-col items-center gap-3"
-        >
-          <motion.button
-            type="button"
-            onClick={handleLaunchClick}
-            onMouseEnter={() => {
-              setHoveringLaunch(true);
-              soundEngine.playHover();
-            }}
-            onMouseLeave={() => setHoveringLaunch(false)}
-            whileHover={{ scale: 1.05, y: -2 }}
-            whileTap={{ scale: 0.97, y: 4 }}
-            transition={{ type: 'spring', stiffness: 450, damping: 18 }}
-            className="relative inline-flex items-center gap-3 px-9 sm:px-11 py-4 sm:py-4.5 rounded-2xl
-                       bg-gradient-to-b from-[#FF7070] via-[#EF4444] to-[#DC2626]
-                       text-white font-display font-bold text-xl sm:text-2xl tracking-wide
-                       border-[3px] border-b-[8px] border-[#881313]
-                       active:border-b-[3px] cursor-pointer"
-            style={{
-              boxShadow:
-                'inset 0 3px 0 rgba(255,255,255,0.55), 0 12px 26px rgba(185, 28, 28, 0.35)',
-              textShadow: '0 2px 0 rgba(120, 14, 14, 0.55)',
-            }}
-          >
-            <Utensils className="w-6 h-6 text-[#FEF08A]" />
-            <span>Open the Kitchen!</span>
-            <Sparkles className="w-6 h-6 text-[#FEF08A]" />
-          </motion.button>
-
-          <div className="flex items-center gap-2 text-xs sm:text-sm font-medium text-[#7C4D25]">
-            <span>or press</span>
-            <kbd className="px-2.5 py-0.5 rounded-lg bg-[#FFFDF8] border-2 border-b-[3px] border-[#D4AA78] font-mono text-xs font-bold text-[#4A2506]">
-              Enter ↵
-            </kbd>
-            <span>to step right in</span>
-          </div>
+          <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-[#8b9a7c]">
+            <ShieldCheck className="h-3 w-3" strokeWidth={1.8} />
+            100% browser-local · no uploads
+          </span>
         </motion.div>
-      </div>
 
-      {/* Bottom Cozy Honey-Oak Countertop Ledge */}
-      <div className="w-full wood-shelf-surface border-t-[4px] border-[#9A5F28] py-3 px-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-1 text-xs font-semibold text-[#5C3415]">
-        <span className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#EF4444] border border-[#7F1D1D]" />
-          Math &amp; Numbers (15 Live Tools)
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#22C55E] border border-[#14532D]" />
-          Coding &amp; Developing (15 Live Tools + 32-Lang IDE)
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B] border border-[#78350F]" />
-          WaffleChat Browser-Local AI Companion
-        </span>
+        {/* centre */}
+        <div className="flex flex-1 flex-col items-start justify-center gap-8 py-10 lg:flex-row lg:items-center">
+          <div className="max-w-xl">
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1, duration: 0.4 }}
+              className="eyebrow"
+            >
+              Good morning
+            </motion.div>
+
+            <motion.h1
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.14, duration: 0.5, ease: [0.2, 0.8, 0.2, 1] }}
+              className="mt-5 text-[clamp(38px,6vw,66px)] leading-[1.04] tracking-[-2.2px] text-[#253f31]"
+            >
+              A little tool
+              <br />
+              for <em className="italic text-[#67844f]">everything.</em>
+              <span className="ml-3 inline-block align-top text-[26px] text-[#d28253]" style={{ transform: 'rotate(17deg)' }} aria-hidden>
+                ✳
+              </span>
+            </motion.h1>
+
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.24, duration: 0.5 }}
+              className="mt-5 max-w-md text-[14px] leading-relaxed text-[#6d7c62]"
+            >
+              Sixty little utilities and a handful of arcade games, all running in your browser.
+              No sign-up, no uploads, no nonsense.
+            </motion.p>
+
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3, duration: 0.45 }}
+              className="mt-8 flex flex-wrap items-center gap-3"
+            >
+              <motion.button
+                type="button"
+                onClick={handleLaunchClick}
+                onMouseEnter={() => {
+                  setHoveringLaunch(true);
+                  soundEngine.playHover();
+                }}
+                onMouseLeave={() => setHoveringLaunch(false)}
+                whileHover={{ y: -2 }}
+                whileTap={{ y: 1 }}
+                className="inline-flex h-[46px] items-center gap-2 rounded-[9px] border border-[#3d5544]
+                           bg-[#3d5544] px-6 text-[13px] font-medium text-[#faf9ed]
+                           transition-colors hover:bg-[#203f2d]"
+              >
+                <Utensils className="h-4 w-4 text-[#dbe7cd]" strokeWidth={1.8} />
+                Open the kitchen
+                <Sparkles className="h-4 w-4 text-[#dbe7cd]" strokeWidth={1.8} />
+              </motion.button>
+
+              <span className="inline-flex items-center gap-2 text-[11.5px] text-[#8b9a83]">
+                or press
+                <kbd className="rounded border border-[#e3e5d8] bg-[#f4f5ec] px-2 py-0.5 font-mono text-[10px] text-[#6d7c62]">
+                  Enter ↵
+                </kbd>
+              </span>
+            </motion.div>
+
+            <motion.a
+              href="https://github.com/the-creative-master"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => soundEngine.playPop(1.08)}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.4, duration: 0.45 }}
+              className="group mt-7 inline-flex items-center gap-2 text-[11px] text-[#8b9a7c] transition-colors hover:text-[#4c6152]"
+            >
+              <span className="grid h-6 w-6 place-items-center rounded-full bg-[#eef0e4] text-[#5c6f50]">
+                <Github className="h-3 w-3" />
+              </span>
+              Made by the-creative-master, check out my GitHub account!
+              <ExternalLink className="h-3 w-3 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+            </motion.a>
+          </div>
+
+          {/* mascot on a soft plate, with the scene behind */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.18, duration: 0.55, ease: [0.2, 0.8, 0.2, 1] }}
+            className="relative w-full max-w-[420px] shrink-0 lg:ml-auto"
+          >
+            <div className="relative overflow-hidden rounded-[18px] border border-[#e2e5d6] bg-[#eeefe2]">
+              <KitchenScene note="a pinch of possibility." />
+              <div className="relative flex items-end justify-center px-6 pb-5 pt-10">
+                <motion.div
+                  animate={{ y: [0, -6, 0] }}
+                  transition={{ duration: 3.8, repeat: Infinity, ease: 'easeInOut' }}
+                  whileHover={{ scale: 1.04 }}
+                  onClick={() => soundEngine.playPop(1.15)}
+                  className="cursor-pointer"
+                  title="Good morning! Ready to cook up something useful?"
+                >
+                  <WaffleCupMascot
+                    size={150}
+                    showSteam
+                    showSaucer
+                    interactive
+                    mood={hoveringLaunch ? 'excited' : 'happy'}
+                  />
+                </motion.div>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+
+        {/* footer strip */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#e5e7db] pt-5 text-[10.5px] text-[#9aa58c]">
+          <span className="inline-flex flex-wrap items-center gap-x-4 gap-y-1">
+            {[
+              ['Math & Numbers', '#EF4444'],
+              ['Coding', '#22C55E'],
+              ['Text & Files', '#3B82F6'],
+              ['Games', '#10B981'],
+            ].map(([label, color]) => (
+              <span key={label} className="inline-flex items-center gap-1.5">
+                <i className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+                {label}
+              </span>
+            ))}
+          </span>
+          <span>Everything stays on your device.</span>
+        </div>
       </div>
     </motion.div>
   );
 };
+
+export default BootSplashScreen;

@@ -114,7 +114,7 @@ export const CommandSpotlight: React.FC<CommandSpotlightProps> = ({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onClose}
-          className="fixed inset-0 z-50 bg-[#2C1608]/50 backdrop-blur-[3px] flex items-start justify-center pt-[10vh] px-4"
+          className="fixed inset-0 z-50 flex items-start justify-center bg-[#17281c]/40 px-4 pt-[10vh] backdrop-blur-[2px]"
         >
           <motion.div
             initial={{ scale: 0.92, y: -16, opacity: 0 }}
@@ -123,24 +123,24 @@ export const CommandSpotlight: React.FC<CommandSpotlightProps> = ({
             transition={{ type: 'spring', stiffness: 440, damping: 28 }}
             onClick={(e) => e.stopPropagation()}
             onKeyDown={handleKeyDown}
-            className="w-full max-w-2xl rounded-3xl bg-[#FFFDF9] border-[3px] border-b-[9px] border-[#8B5220] shadow-toy-lg overflow-hidden"
+            className="w-full max-w-2xl overflow-hidden rounded-[15px] border border-[#e1e5d6] bg-[#fffefa] shadow-[0_28px_60px_-18px_#28392140]"
           >
             {/* Search Input Bar */}
-            <div className="flex items-center gap-3 px-5 py-4 bg-[#FFF8EB] border-b-2 border-[#E6C79C]">
-              <Search className="w-5 h-5 text-[#D97706] shrink-0" />
+            <div className="flex items-center gap-3 border-b border-[#e8e8df] px-5 py-4">
+              <Search className="h-[17px] w-[17px] shrink-0 text-[#939c86]" strokeWidth={1.7} />
               <input
                 ref={inputRef}
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search any tool, cupboard, language, or tag (e.g. vinculum, regex, rust, matrix)..."
-                className="flex-1 bg-transparent text-base font-medium text-[#3B2314] placeholder:text-[#A38160] focus:outline-none"
+                className="flex-1 bg-transparent text-[14px] text-[#354239] outline-none placeholder:text-[#9c9e92]"
               />
               {query && (
                 <button
                   type="button"
                   onClick={() => setQuery('')}
-                  className="p-1 text-[#8B5A2B] hover:text-[#3B2314]"
+                  className="rounded p-1 text-[#a8b09b] hover:text-[#4c6152]"
                   aria-label="Clear query"
                 >
                   <X className="w-4 h-4" />
@@ -149,7 +149,7 @@ export const CommandSpotlight: React.FC<CommandSpotlightProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-2 py-1 rounded-lg bg-[#F3DFC1] text-[11px] font-mono font-bold text-[#5C3415] border border-[#D4AA78]"
+                className="rounded border border-[#e3e5d8] bg-[#f4f5ec] px-2 py-0.5 font-mono text-[10px] text-[#8a9282]"
               >
                 ESC
               </button>
@@ -159,10 +159,10 @@ export const CommandSpotlight: React.FC<CommandSpotlightProps> = ({
             <div ref={listRef} className="max-h-[58vh] overflow-y-auto p-2.5 space-y-1">
               {results.length === 0 ? (
                 <div className="py-12 text-center">
-                  <p className="font-display font-bold text-lg text-[#3B2314]">
-                    No matching recipe found for &ldquo;{query}&rdquo;
+                  <p className="font-serif text-[19px] text-[#41573f]">
+                    Nothing found for &ldquo;{query}&rdquo;
                   </p>
-                  <p className="text-xs text-[#7A5433] mt-1">
+                  <p className="mt-1 text-[11.5px] text-[#8c947e]">
                     Try searching &ldquo;calculator&rdquo;, &ldquo;wafflecode&rdquo;, &ldquo;roman&rdquo;,
                     &ldquo;cron&rdquo;, &ldquo;jwt&rdquo;, or &ldquo;lorem&rdquo;.
                   </p>
@@ -182,17 +182,16 @@ export const CommandSpotlight: React.FC<CommandSpotlightProps> = ({
                         onSelectTool(tool);
                         onClose();
                       }}
-                      className={`w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-2xl text-left transition-colors cursor-pointer ${
+                      className={`flex w-full cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors ${
                         active
-                          ? 'bg-[#FEF3C7] border-2 border-[#D97706]'
-                          : 'border-2 border-transparent hover:bg-[#FFF8EB]'
+                          ? 'border-[#dfe5d2] bg-[#f2f4e8]'
+                          : 'border-transparent hover:bg-[#f7f8f0]'
                       }`}
                     >
                       <div
-                        className="w-10 h-10 rounded-xl border-2 border-b-[3px] flex items-center justify-center shrink-0"
+                        className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
                         style={{
-                          backgroundColor: cupboard.palette.surface,
-                          borderColor: cupboard.palette.base,
+                          backgroundColor: `color-mix(in srgb, ${cupboard.palette.base} 18%, #fff)`,
                           color: cupboard.palette.shadow,
                         }}
                       >
@@ -201,18 +200,18 @@ export const CommandSpotlight: React.FC<CommandSpotlightProps> = ({
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="font-display font-bold text-sm sm:text-base text-[#3B2314] truncate">
+                          <span className="truncate font-serif text-[15px] text-[#273e30]">
                             {tool.name}
                           </span>
                           {tool.isStar && (
                             <Star className="w-3.5 h-3.5 fill-[#F59E0B] text-[#B45309] shrink-0" />
                           )}
                         </div>
-                        <p className="text-xs text-[#7A5433] truncate">{tool.shortDescription}</p>
+                        <p className="truncate text-[11px] text-[#979b8d]">{tool.shortDescription}</p>
                       </div>
 
                       <span
-                        className="hidden sm:inline-flex px-2.5 py-0.5 rounded-full text-[11px] font-display font-bold text-white shrink-0"
+                        className="hidden shrink-0 rounded-full px-2 py-0.5 text-[9.5px] font-medium text-white sm:inline-flex"
                         style={{ backgroundColor: cupboard.palette.base }}
                       >
                         {cupboard.shortName}
@@ -226,7 +225,7 @@ export const CommandSpotlight: React.FC<CommandSpotlightProps> = ({
             </div>
 
             {/* Footer Key Hints */}
-            <div className="px-5 py-2.5 bg-[#FFF8EB] border-t-2 border-[#E6C79C] flex items-center justify-between text-[11px] font-semibold text-[#7A5433]">
+            <div className="flex items-center justify-between border-t border-[#e8e8df] bg-[#fafbf5] px-5 py-2.5 text-[10.5px] text-[#8c947e]">
               <div className="flex items-center gap-3">
                 <span>↑↓ Navigate</span>
                 <span>↵ Launch Tool</span>
