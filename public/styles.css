@@ -810,6 +810,47 @@ button {
     overflow-wrap: anywhere;
 }
 
+.message__content--thinking {
+    min-height: 24px;
+    display: flex;
+    align-items: center;
+}
+
+.thinking-dots {
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+}
+
+.thinking-dots i {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    animation: thinking-pulse 1.25s ease-in-out infinite;
+}
+
+.thinking-dots i:nth-child(2) {
+    animation-delay: 0.18s;
+}
+
+.thinking-dots i:nth-child(3) {
+    animation-delay: 0.36s;
+}
+
+@keyframes thinking-pulse {
+    0%,
+    60%,
+    100% {
+        opacity: 0.25;
+        transform: translateY(0);
+    }
+    30% {
+        opacity: 1;
+        transform: translateY(-3px);
+    }
+}
+
 .message--user .message__content {
     background: var(--surface-strong);
     border: 1px solid var(--border);

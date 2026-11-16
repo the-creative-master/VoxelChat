@@ -13,7 +13,8 @@
         "verify-model": "node scripts/verify-model.mjs",
         "test": "node scripts/api-test.mjs && node scripts/smoke-test.mjs",
         "test:api": "node scripts/api-test.mjs",
-        "test:ui": "node scripts/smoke-test.mjs"
+        "test:ui": "node scripts/smoke-test.mjs",
+        "test:live": "node scripts/live-test.mjs"
     },
     "engines": {
         "node": ">=20"

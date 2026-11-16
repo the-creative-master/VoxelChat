@@ -26,6 +26,7 @@ export async function createServer({
     port = 7842,
     host = "0.0.0.0",
     openBrowser = false,
+    quiet = false,
     dataDir: dataDirOverride = dataDir,
     modelsDir: modelsDirOverride = modelsDir,
 } = {}) {
@@ -36,6 +37,26 @@ export async function createServer({
     const app = express();
 
     app.use(express.json({limit: "5mb"}));
+
+    // A one line trace of every request – the fastest way to see what a
+    // browser (or a proxy in front of it) is actually asking for.
+    app.use((request, response, next) => {
+        const startedAt = Date.now();
+
+        response.on("finish", () => {
+            if (quiet) return;
+
+            const elapsed = Date.now() - startedAt;
+
+            console.log(
+                `  ${request.method} ${request.originalUrl} → ${response.statusCode} ${elapsed}ms` +
+                    ` ${request.get("user-agent") ?? ""}`,
+            );
+        });
+
+        next();
+    });
+
     app.use(express.static(publicDir, {extensions: ["html"]}));
 
     const statusClients = new Set();
@@ -66,6 +87,7 @@ export async function createServer({
             Connection: "keep-alive",
             "X-Accel-Buffering": "no",
         });
+        response.flushHeaders?.();
         response.write(`data: ${JSON.stringify(engine.status)}\n\n`);
         statusClients.add(response);
 
@@ -193,6 +215,11 @@ export async function createServer({
             Connection: "keep-alive",
             "X-Accel-Buffering": "no",
         });
+
+        // Flush the headers and send an empty frame: some proxies hold a
+        // response back until the first byte arrives.
+        response.flushHeaders?.();
+        response.write(": connected\n\n");
 
         const send = (event, data) => {
             response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);

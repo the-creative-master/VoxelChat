@@ -14,7 +14,12 @@ import {createServer} from "../src/server.js";
 // A throw-away data/models folder so the test never touches the real settings.
 const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), "voxelchat-test-"));
 
-const instance = await createServer({port: 0, dataDir: sandbox, modelsDir: path.join(sandbox, "models")});
+const instance = await createServer({
+    port: 0,
+    quiet: true,
+    dataDir: sandbox,
+    modelsDir: path.join(sandbox, "models"),
+});
 const base = `http://127.0.0.1:${instance.port}`;
 
 try {

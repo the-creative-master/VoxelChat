@@ -389,7 +389,13 @@ function buildMessageNode(message) {
 
     const content = document.createElement("div");
     content.className = "message__content";
-    content.innerHTML = renderMarkdown(message.content);
+
+    if (message.streaming && !message.content) {
+        content.classList.add("message__content--thinking");
+        content.innerHTML = '<span class="thinking-dots" aria-label="Thinking"><i></i><i></i><i></i></span>';
+    } else {
+        content.innerHTML = renderMarkdown(message.content);
+    }
 
     const actions = document.createElement("div");
     actions.className = "message__actions";
@@ -524,6 +530,14 @@ async function sendMessage(text) {
             }
 
             if (event === "done") {
+                // The server always sends the finished reply along. If the
+                // stream was cut short (a proxy that buffers, a flaky network)
+                // the complete answer is still here.
+                if (data.reply && data.reply.length > assistantMessage.content.length) {
+                    assistantMessage.content = data.reply;
+                    updateStreamingNode(assistantMessage);
+                }
+
                 assistantMessage.stats = data.stats;
                 assistantMessage.streaming = false;
 
@@ -618,6 +632,7 @@ function updateStreamingNode(message) {
 
         if (!last) return;
 
+        last.classList.remove("message__content--thinking");
         last.innerHTML = `${renderMarkdown(message.content)}<span class="caret"></span>`;
         scrollToBottom(false);
     });
