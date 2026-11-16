@@ -247,16 +247,48 @@ function setBootDetail(text) {
 
 async function pollStatus() {
     try {
-        const response = await fetch("/api/status");
+        const response = await fetch("/api/status", {cache: "no-store"});
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
         const status = await response.json();
 
         applyStatus(status);
+
+        return status;
     } catch {
-        setBootStage("Waiting for the local server…");
+        // Only the boot screen cares about this – once the chat is up, a
+        // hiccup should not change anything on screen.
+        if ($("#app").classList.contains("is-hidden")) {
+            setBootStage("Waiting for the local server…");
+        }
+
+        return null;
     }
 }
 
+/**
+ * The server tells us which version it is. If it is not the version this
+ * page was built from, the page reloads itself – nobody should ever talk to
+ * a new server with an old front-end.
+ */
+function checkVersion(version) {
+    if (!version) return;
+
+    const meta = document.querySelector('meta[name="voxelchat-version"]');
+    const pageVersion = meta?.content;
+
+    if (!pageVersion || pageVersion === version) return;
+
+    if (sessionStorage.getItem("voxelchat.reloaded") === version) return;
+
+    sessionStorage.setItem("voxelchat.reloaded", version);
+    location.reload();
+}
+
 function applyStatus(status) {
+    checkVersion(status.version);
+
     const previousPhase = state.status.phase;
     const signature = `${status.phase}|${status.stage}|${status.progress}|${status.error ?? ""}|${
         status.model?.id ?? ""
@@ -729,7 +761,7 @@ async function regenerateLast() {
 /* ──────────────────────────────── settings ──────────────────────────────── */
 
 async function loadSettings() {
-    const response = await fetch("/api/settings");
+    const response = await fetch("/api/settings", {cache: "no-store"});
     const settings = await response.json();
 
     state.settings = settings;
@@ -773,7 +805,7 @@ function applyTheme(theme) {
 }
 
 async function loadPersonas() {
-    const response = await fetch("/api/personas");
+    const response = await fetch("/api/personas", {cache: "no-store"});
     const {personas} = await response.json();
 
     state.personas = personas;
@@ -817,7 +849,7 @@ function applyPersona(personaId) {
 /* ───────────────────────────────── models ──────────────────────────────── */
 
 async function loadModels() {
-    const response = await fetch("/api/models");
+    const response = await fetch("/api/models", {cache: "no-store"});
     const models = await response.json();
 
     state.models = models;
@@ -1036,20 +1068,25 @@ function flashComposer(message) {
     }, 2600);
 }
 
-function submit() {
+async function submit() {
     const input = $("#input");
     const text = input.value;
 
     if (!text.trim()) return;
 
     if (state.status.phase !== "ready") {
-        flashComposer(
-            state.status.phase === "error"
-                ? "The model could not be loaded – check the settings drawer."
-                : "Still waking up the model – one second!",
-        );
+        // The status may be out of date – ask the server before giving up.
+        await pollStatus();
 
-        return;
+        if (state.status.phase !== "ready") {
+            flashComposer(
+                state.status.phase === "error"
+                    ? "The model could not be loaded – press Retry on the boot screen."
+                    : "Still waking up the model – one second!",
+            );
+
+            return;
+        }
     }
 
     input.value = "";
@@ -1073,7 +1110,10 @@ function startStatusPolling() {
 
     const tick = async () => {
         try {
-            const response = await fetch("/api/status");
+            const response = await fetch("/api/status", {cache: "no-store"});
+
+            if (!response.ok) return;
+
             const status = await response.json();
 
             applyStatus(status);

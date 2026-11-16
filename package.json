@@ -1,6 +1,6 @@
 {
     "name": "voxelchat",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "private": true,
     "description": "Chat with SmolLM2 1.7B on your own machine \u2013 zero setup, zero cloud, zero API keys.",
     "type": "module",

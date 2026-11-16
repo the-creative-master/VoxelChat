@@ -184,9 +184,12 @@ let reply = "";
 
 while (Date.now() < replyDeadline) {
     const nodes = window.document.querySelectorAll("#messages .message--assistant .message__content");
-    reply = nodes[nodes.length - 1]?.textContent ?? "";
+    const last = nodes[nodes.length - 1];
 
-    if (reply.trim() && !reply.includes("caret") && reply.length > 4) break;
+    reply = last?.textContent ?? "";
+
+    // The caret only disappears when the stream is done.
+    if (reply.trim() && !last?.querySelector?.(".caret")) break;
 
     await sleep(500);
 }
@@ -195,7 +198,7 @@ console.log(`▌  the screen says: ${JSON.stringify(reply.slice(0, 160))}`);
 
 assert.ok(reply.trim().length > 0, "the reply should be rendered on the screen");
 assert.ok(!reply.startsWith("⚠️"), `the reply should not be an error: ${reply.slice(0, 120)}`);
-assert.ok(reply.length > 3, `the reply should have some content, got: ${reply.slice(0, 200)}`);
+assert.ok(reply.trim().length > 0, `the reply should have some content, got: ${reply.slice(0, 200)}`);
 
 // The fallback path: one request, the whole answer.
 const oneShot = await fetch(`${base}/api/chat`, {

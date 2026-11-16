@@ -15,6 +15,7 @@ import {VoxelEngine} from "./engine.js";
 import {formatBytes, listLocalModels, MODEL_CATALOG} from "./model-store.js";
 import {PERSONAS} from "./personas.js";
 import {SettingsStore} from "./settings.js";
+import {VERSION} from "./version.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(here, "..");
@@ -37,6 +38,16 @@ export async function createServer({
     const app = express();
 
     app.use(express.json({limit: "5mb"}));
+
+    // The API is never cached: a stale answer (or a 304 with an empty body)
+    // must never be what the app works with.
+    app.use("/api", (_request, response, next) => {
+        response.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+        response.setHeader("Pragma", "no-cache");
+        response.setHeader("Expires", "0");
+
+        next();
+    });
 
     // A one line trace of every request – the fastest way to see what a
     // browser (or a proxy in front of it) is actually asking for.
@@ -77,7 +88,7 @@ export async function createServer({
     engine.on("log", (message) => console.log(`  ${message}`));
 
     app.get("/api/status", (_request, response) => {
-        response.json(engine.status);
+        response.json({...engine.status, version: VERSION});
     });
 
     app.get("/api/events", (request, response) => {
@@ -88,7 +99,7 @@ export async function createServer({
             "X-Accel-Buffering": "no",
         });
         response.flushHeaders?.();
-        response.write(`data: ${JSON.stringify(engine.status)}\n\n`);
+        response.write(`data: ${JSON.stringify({...engine.status, version: VERSION})}\n\n`);
         statusClients.add(response);
 
         const keepAlive = setInterval(() => {

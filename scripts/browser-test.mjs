@@ -32,7 +32,7 @@ const target = `http://127.0.0.1:${port}`;
 const base = process.env.VOXELCHAT_TEST_BASE ?? target;
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "voxelchat-browser-"));
-const instance = await createServer({port, host: "127.0.0.1", dataDir, quiet: true});
+const instance = await createServer({port, host: "127.0.0.1", dataDir, quiet: false});
 
 instance.engine.boot().catch((error) => console.error("✖  boot failed:", error.message));
 
@@ -70,9 +70,19 @@ try {
 
 process.env.LD_LIBRARY_PATH = [libraryPath, process.env.LD_LIBRARY_PATH].filter(Boolean).join(":");
 
+const viewport = process.env.VOXELCHAT_TEST_VIEWPORT
+    ? {
+          width: Number(process.env.VOXELCHAT_TEST_VIEWPORT.split("x")[0]),
+          height: Number(process.env.VOXELCHAT_TEST_VIEWPORT.split("x")[1]),
+          isMobile: true,
+          hasTouch: true,
+          deviceScaleFactor: 3,
+      }
+    : {width: 1280, height: 900};
+
 const browser = await puppeteer.launch({
     args: [...chromium.args, "--no-sandbox", "--disable-dev-shm-usage"],
-    defaultViewport: {width: 1280, height: 900},
+    defaultViewport: viewport,
     env: {...process.env},
     executablePath,
     headless: "shell",
@@ -93,6 +103,11 @@ page.on("requestfailed", (request) =>
 
 console.log("▌  opening the page …");
 
+await page.goto(base, {waitUntil: "domcontentloaded", timeout: 60_000});
+
+// Visit once more with a warm cache: the browser then asks the server with
+// "If-None-Match" and gets a 304 back – an empty body that must not break
+// the app.
 await page.goto(base, {waitUntil: "domcontentloaded", timeout: 60_000});
 
 // The boot screen must hand over to the chat.
@@ -139,8 +154,11 @@ const layout = await page.evaluate(() => {
 console.log("▌  layout:", JSON.stringify(layout));
 
 assert.ok(layout.input.height > 10, "the composer input should have a height");
-assert.ok(layout.input.width > 100, "the composer input should be wide");
-assert.ok(layout.input.y < layout.viewport.height, "the composer should be on screen");
+assert.ok(layout.input.width > 100, `the composer input should be wide, got ${layout.input.width}`);
+assert.ok(
+    layout.input.y + layout.input.height <= layout.viewport.height + 1,
+    `the composer should be inside the viewport, got ${JSON.stringify(layout.input)} in ${JSON.stringify(layout.viewport)}`,
+);
 assert.ok(!layout.bootVisible, "the boot screen should be gone");
 assert.ok(layout.topElementIsInput, `the input should be clickable, but ${layout.topElementAtInput} is on top`);
 assert.ok(layout.send.width > 10, "the send button should have a size");
