@@ -505,17 +505,43 @@ async function sendMessage(text) {
         }
     }, 500);
 
+    const payload = {
+        messages: conversation.messages
+            .filter((message) => !message.streaming)
+            .map(({role, content}) => ({role, content})),
+    };
+
     try {
-        const response = await fetch("/api/chat", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({
-                messages: conversation.messages
-                    .filter((message) => !message.streaming)
-                    .map(({role, content}) => ({role, content})),
-            }),
-            signal: state.abortController.signal,
-        });
+        let response;
+
+        try {
+            response = await fetch("/api/chat", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(payload),
+                signal: state.abortController.signal,
+            });
+        } catch (error) {
+            // The streaming request never made it (a proxy that refuses to
+            // pass a long response through, a dropped connection). Ask for
+            // the whole answer in one go instead.
+            const fallback = await fetch("/api/chat", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({...payload, stream: false}),
+                signal: state.abortController.signal,
+            });
+
+            const result = await fallback.json();
+
+            assistantMessage.content = result.reply ?? "";
+            assistantMessage.stats = result.stats ?? null;
+            assistantMessage.streaming = false;
+
+            renderMessages();
+
+            return;
+        }
 
         if (!response.ok || !response.body) {
             const fallback = await response.json().catch(() => ({}));
@@ -995,10 +1021,43 @@ function submit() {
     sendMessage(text);
 }
 
+let statusPollTimer = null;
+let lastEventAt = 0;
+
+/**
+ * Some proxies do not like long lived connections. When the status stream
+ * goes quiet the app falls back to plain polling, so the UI keeps working
+ * either way.
+ */
+function startStatusPolling() {
+    if (statusPollTimer) return;
+
+    statusPollTimer = setInterval(async () => {
+        try {
+            const response = await fetch("/api/status");
+            const status = await response.json();
+
+            applyStatus(status);
+        } catch {
+            /* the server is not reachable right now */
+        }
+    }, 1500);
+}
+
+function stopStatusPolling() {
+    if (!statusPollTimer) return;
+
+    clearInterval(statusPollTimer);
+    statusPollTimer = null;
+}
+
 function connectEvents() {
     const source = new EventSource("/api/events");
 
     source.addEventListener("message", (event) => {
+        lastEventAt = Date.now();
+        stopStatusPolling();
+
         try {
             applyStatus(JSON.parse(event.data));
         } catch {
@@ -1007,8 +1066,15 @@ function connectEvents() {
     });
 
     source.addEventListener("error", () => {
-        /* the browser reconnects on its own */
+        // The browser reconnects on its own, but the app must not depend on
+        // it – poll instead.
+        startStatusPolling();
     });
+
+    // Nothing over the stream within a few seconds? Poll.
+    setTimeout(() => {
+        if (!lastEventAt) startStatusPolling();
+    }, 6000);
 }
 
 async function init() {
