@@ -19,6 +19,7 @@ const state = {
     settings: {},
     models: {catalog: [], local: [], active: null},
     streaming: false,
+    stopped: false,
     abortController: null,
 };
 
@@ -257,8 +258,16 @@ async function pollStatus() {
 
 function applyStatus(status) {
     const previousPhase = state.status.phase;
+    const signature = `${status.phase}|${status.stage}|${status.progress}|${status.error ?? ""}|${
+        status.model?.id ?? ""
+    }|${status.contextSize}|${status.threads}`;
 
     state.status = status;
+
+    // Polling runs every second – only redraw when something actually moved.
+    if (signature === lastStatusSignature) return;
+
+    lastStatusSignature = signature;
 
     const phase = status.phase ?? "idle";
 
@@ -491,6 +500,7 @@ async function sendMessage(text) {
 
     setStreaming(true);
 
+    state.stopped = false;
     state.abortController = new AbortController();
 
     const startedAt = Date.now();
@@ -511,6 +521,25 @@ async function sendMessage(text) {
             .map(({role, content}) => ({role, content})),
     };
 
+    // The whole answer in one response – the fallback when streaming does not
+    // make it through.
+    const oneShot = async () => {
+        const fallback = await fetch("/api/chat", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({...payload, stream: false}),
+            signal: state.abortController.signal,
+        });
+
+        const result = await fallback.json();
+
+        assistantMessage.content = result.reply ?? "";
+        assistantMessage.stats = result.stats ?? null;
+        assistantMessage.streaming = false;
+
+        renderMessages();
+    };
+
     try {
         let response;
 
@@ -521,24 +550,10 @@ async function sendMessage(text) {
                 body: JSON.stringify(payload),
                 signal: state.abortController.signal,
             });
-        } catch (error) {
+        } catch {
             // The streaming request never made it (a proxy that refuses to
-            // pass a long response through, a dropped connection). Ask for
-            // the whole answer in one go instead.
-            const fallback = await fetch("/api/chat", {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({...payload, stream: false}),
-                signal: state.abortController.signal,
-            });
-
-            const result = await fallback.json();
-
-            assistantMessage.content = result.reply ?? "";
-            assistantMessage.stats = result.stats ?? null;
-            assistantMessage.streaming = false;
-
-            renderMessages();
+            // pass a long response through, a dropped connection).
+            await oneShot();
 
             return;
         }
@@ -547,6 +562,13 @@ async function sendMessage(text) {
             const fallback = await response.json().catch(() => ({}));
             throw new Error(fallback.error || `The model returned ${response.status}.`);
         }
+
+        // A stream that stays completely silent for this long is being held
+        // back somewhere – drop it and ask for the whole answer instead.
+        const controller = state.abortController;
+        const watchdog = setTimeout(() => {
+            if (received === 0) controller?.abort();
+        }, 25_000);
 
         await readStream(response.body, (event, data) => {
             if (event === "delta") {
@@ -590,8 +612,21 @@ async function sendMessage(text) {
                 assistantMessage.content = `⚠️ ${data.message}`;
             }
         });
+
+        clearTimeout(watchdog);
     } catch (error) {
-        if (error.name !== "AbortError") {
+        if (error.name === "AbortError") {
+            // Aborted by the watchdog – nothing arrived, so try once more
+            // without streaming.
+            if (received === 0 && !state.stopped) {
+                try {
+                    await oneShot();
+                } catch {
+                    assistantMessage.content = "⚠️ The model did not answer.";
+                    assistantMessage.streaming = false;
+                }
+            }
+        } else {
             assistantMessage.content = `⚠️ ${error.message}`;
             assistantMessage.streaming = false;
         }
@@ -895,6 +930,7 @@ function wireEvents() {
     $("#send-button").addEventListener("click", submit);
 
     $("#stop-button").addEventListener("click", async () => {
+        state.stopped = true;
         await fetch("/api/chat/stop", {method: "POST"});
         state.abortController?.abort();
     });
@@ -1022,26 +1058,34 @@ function submit() {
 }
 
 let statusPollTimer = null;
-let lastEventAt = 0;
+let lastStatusSignature = "";
 
 /**
- * Some proxies do not like long lived connections. When the status stream
- * goes quiet the app falls back to plain polling, so the UI keeps working
- * either way.
+ * The status is polled instead of streamed.
+ *
+ * A long lived connection is the one thing a proxy in front of the app can
+ * refuse to pass through, and a refused stream would also hold up the very
+ * request that answers a question. Short, complete requests are boring – and
+ * boring always works.
  */
 function startStatusPolling() {
     if (statusPollTimer) return;
 
-    statusPollTimer = setInterval(async () => {
+    const tick = async () => {
         try {
             const response = await fetch("/api/status");
             const status = await response.json();
 
             applyStatus(status);
         } catch {
-            /* the server is not reachable right now */
+            // The server is not reachable right now – say so and try again.
+            setBootStage("Waiting for the local server…");
         }
-    }, 1500);
+    };
+
+    statusPollTimer = setInterval(tick, 1200);
+
+    tick();
 }
 
 function stopStatusPolling() {
@@ -1051,46 +1095,17 @@ function stopStatusPolling() {
     statusPollTimer = null;
 }
 
-function connectEvents() {
-    const source = new EventSource("/api/events");
-
-    source.addEventListener("message", (event) => {
-        lastEventAt = Date.now();
-        stopStatusPolling();
-
-        try {
-            applyStatus(JSON.parse(event.data));
-        } catch {
-            /* ignore */
-        }
-    });
-
-    source.addEventListener("error", () => {
-        // The browser reconnects on its own, but the app must not depend on
-        // it – poll instead.
-        startStatusPolling();
-    });
-
-    // Nothing over the stream within a few seconds? Poll.
-    setTimeout(() => {
-        if (!lastEventAt) startStatusPolling();
-    }, 6000);
-}
-
 async function init() {
     loadConversations();
     renderChatList();
     renderMessages();
     wireEvents();
-    connectEvents();
+    startStatusPolling();
 
     await Promise.allSettled([loadSettings(), loadPersonas(), loadModels()]);
 
     renderChatList();
     renderMessages();
-
-    setBootStage("Waking up llama.cpp…");
-    await pollStatus();
 
     window.setInterval(() => {
         if (state.status.phase === "ready") {
