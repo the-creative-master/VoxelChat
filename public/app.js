@@ -568,7 +568,7 @@ async function sendMessage(text) {
         const controller = state.abortController;
         const watchdog = setTimeout(() => {
             if (received === 0) controller?.abort();
-        }, 25_000);
+        }, 20_000);
 
         await readStream(response.body, (event, data) => {
             if (event === "delta") {

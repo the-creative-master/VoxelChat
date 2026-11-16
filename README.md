@@ -198,17 +198,39 @@ voxelchat/
 | `npm run prepare-model` | Put the model into `models/` – for a fresh checkout or CI. |
 | `npm run verify-model` | Check the model's checksum and ask it a question. |
 | `npm test` | API test + front-end smoke test. |
+| `npm run test:live` | The real front-end against the real server over real HTTP. |
+| `npm run test:browser` | The app in headless Chromium – real layout, real clicks, real typing. |
 
 ---
 
 ## Tests
 
 ```bash
-npm test
+npm test              # API contract + front-end smoke test
+npm run test:live     # the real front-end against the real server, over HTTP
+npm run test:browser  # the app in headless Chromium
 ```
 
-Runs the API test (server endpoints) and the UI smoke test (the real front-end
-in jsdom: boot → send → stream → persist).
+`npm test` runs the API test (server endpoints) and the UI smoke test (the
+front-end in jsdom: boot → send → stream → persist).
+
+`npm run test:live` starts the real server with the real model, loads the real
+front-end into jsdom and lets it talk over real HTTP – including the real
+streaming response.
+
+`npm run test:browser` goes one step further and drives the app in headless
+Chromium: it checks the layout, that the composer is really clickable, types a
+question, presses Enter and reads the answer off the screen. It also fails if
+the page logs a console error or a request fails.
+
+`scripts/proxy-test.mjs` puts a reverse proxy in front of the app so the
+browser test can be run through one:
+
+```bash
+node scripts/proxy-test.mjs --stream   # passes chunks through
+node scripts/proxy-test.mjs            # buffers the whole response
+node scripts/proxy-test.mjs --hang     # refuses to pass a stream through
+```
 
 ---
 

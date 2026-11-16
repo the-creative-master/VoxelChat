@@ -14,7 +14,8 @@
         "test": "node scripts/api-test.mjs && node scripts/smoke-test.mjs",
         "test:api": "node scripts/api-test.mjs",
         "test:ui": "node scripts/smoke-test.mjs",
-        "test:live": "node scripts/live-test.mjs"
+        "test:live": "node scripts/live-test.mjs",
+        "test:browser": "node scripts/browser-test.mjs"
     },
     "engines": {
         "node": ">=20"
@@ -33,6 +34,8 @@
         "node-llama-cpp": "^3.22.3"
     },
     "devDependencies": {
-        "jsdom": "^26.1.0"
+        "@sparticuz/chromium": "^153.0.0",
+        "jsdom": "^26.1.0",
+        "puppeteer-core": "^25.17.0"
     }
 }
