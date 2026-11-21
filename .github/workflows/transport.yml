@@ -1,0 +1,138 @@
+name: Transport the model weights
+
+# The weights are 1.05 GB – too big for git and not always reachable through
+# the release asset host. This workflow publishes them a second way: as small
+# blobs on the `model-cache` branch, written through the git database API.
+#
+#   git fetch origin model-cache
+#   for each blob: git cat-file blob refs/remotes/origin/model-cache:model-cache/part-NNN
+#
+# The release asset stays the real home of the file; this is the transport for
+# networks that cannot reach the asset host.
+
+on:
+    push:
+        branches: [arena/108466d4-voxelchat]
+        paths: [".github/workflows/transport.yml"]
+    workflow_dispatch: {}
+
+permissions:
+    contents: write
+
+env:
+    MODEL_NAME: smollm2-1.7b-instruct-q4_k_m.gguf
+    MODEL_URL: https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/2d4a76a30b4af41ecd395c35725ac11688d4cfe4/smollm2-1.7b-instruct-q4_k_m.gguf
+    MODEL_SHA256: decd2598bc2c8ed08c19adc3c8fdd461ee19ed5708679d1c54ef54a5a30d4f33
+    TRANSPORT_BRANCH: model-cache
+
+jobs:
+    transport:
+        runs-on: ubuntu-latest
+        timeout-minutes: 45
+
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 1
+
+            - name: Download SmolLM2 1.7B Instruct (Q4_K_M)
+              run: |
+                  set -euo pipefail
+                  curl -L --fail --retry 3 --retry-delay 5 -C - -o "$MODEL_NAME" "$MODEL_URL"
+                  echo "$MODEL_SHA256  $MODEL_NAME" | sha256sum -c -
+
+            - name: Write the transport script
+              run: |
+                  cat > /tmp/transport.py <<'PY'
+                  import base64, json, os, pathlib, urllib.request
+
+                  repo = os.environ["GITHUB_REPOSITORY"]
+                  token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+                  branch = os.environ["TRANSPORT_BRANCH"]
+                  api = f"https://api.github.com/repos/{repo}"
+
+                  if not token:
+                      raise SystemExit("no GitHub token in the environment")
+
+                  def request(method, url, payload=None):
+                      data = json.dumps(payload).encode() if payload is not None else None
+                      req = urllib.request.Request(
+                          url, data=data, method=method,
+                          headers={
+                              "Authorization": f"token {token}",
+                              "Accept": "application/vnd.github+json",
+                              "Content-Type": "application/json",
+                          },
+                      )
+                      try:
+                          with urllib.request.urlopen(req) as response:
+                              return response.status, response.read().decode()
+                      except Exception as error:  # noqa: BLE001
+                          body = getattr(error, "read", lambda: b"")()
+                          return getattr(error, "code", "?"), body.decode(errors="replace")
+
+                  def need(method, url, payload=None):
+                      status, body = request(method, url, payload)
+                      if status not in (200, 201):
+                          raise SystemExit(f"{method} {url} -> {status}: {body[:800]}")
+                      return json.loads(body) if body else {}
+
+                  status, body = request("GET", f"{api}/git/ref/heads/main")
+                  base_sha = json.loads(body)["object"]["sha"]
+                  print("base", base_sha, flush=True)
+
+                  entries = []
+                  for chunk in sorted(pathlib.Path("chunks").iterdir()):
+                      encoded = base64.b64encode(chunk.read_bytes()).decode()
+                      blob = need("POST", f"{api}/git/blobs", {"content": encoded, "encoding": "base64"})
+                      entries.append({
+                          "path": f"model-cache/{chunk.name}",
+                          "mode": "100644",
+                          "type": "blob",
+                          "sha": blob["sha"],
+                      })
+                      print(f"blob {chunk.name} -> {blob['sha']}", flush=True)
+
+                  tree = need("POST", f"{api}/git/trees", {"base_tree": base_sha, "tree": entries})
+                  print("tree", tree["sha"], flush=True)
+                  commit = need("POST", f"{api}/git/commits", {
+                      "message": "SmolLM2 1.7B Instruct Q4_K_M (transport chunks)",
+                      "tree": tree["sha"],
+                      "parents": [base_sha],
+                  })
+                  print("commit", commit["sha"], flush=True)
+                  ref_status, _ = request("GET", f"{api}/git/ref/heads/{branch}")
+                  if ref_status == 200:
+                      status, body = request("PATCH", f"{api}/git/refs/heads/{branch}", {
+                          "sha": commit["sha"],
+                          "force": True,
+                      })
+                  else:
+                      status, body = request("POST", f"{api}/git/refs", {
+                          "ref": f"refs/heads/{branch}",
+                          "sha": commit["sha"],
+                      })
+                  print("ref:", status, body[:200], flush=True)
+                  PY
+                  python3 -c "import ast; ast.parse(open('/tmp/transport.py').read()); print('transport script parsed')"
+
+            - name: Split the model
+              run: |
+                  set -uo pipefail
+                  rm -rf chunks
+                  mkdir -p chunks
+                  split -b 20M -d -a 3 "$MODEL_NAME" chunks/part-
+                  ls chunks | wc -l
+
+            - name: Publish the transport branch
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  set -uo pipefail
+                  status=0
+                  {
+                    python3 /tmp/transport.py || status=$?
+                    echo "transport exit: $status"
+                  } > /tmp/transport.log 2>&1 || true
+                  tail -n 30 /tmp/transport.log || true
+                  exit $status

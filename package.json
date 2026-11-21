@@ -1,11 +1,41 @@
 {
-  "name": "voxelchat",
-  "version": "1.1.0",
-  "private": true,
-  "description": "Static GitHub Pages AI chat and image generation interface",
-  "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
-  },
-  "license": "MIT"
+    "name": "voxelchat",
+    "version": "2.0.1",
+    "private": true,
+    "description": "Chat with SmolLM2 1.7B on your own machine \u2013 zero setup, zero cloud, zero API keys.",
+    "type": "module",
+    "main": "src/launcher.js",
+    "scripts": {
+        "start": "node src/launcher.js",
+        "dev": "node --watch src/launcher.js",
+        "build:app": "node scripts/build-app.mjs",
+        "prepare-model": "node scripts/prepare-model.mjs",
+        "verify-model": "node scripts/verify-model.mjs",
+        "test": "node scripts/api-test.mjs && node scripts/smoke-test.mjs",
+        "test:api": "node scripts/api-test.mjs",
+        "test:ui": "node scripts/smoke-test.mjs",
+        "test:live": "node scripts/live-test.mjs",
+        "test:browser": "node scripts/browser-test.mjs"
+    },
+    "engines": {
+        "node": ">=20"
+    },
+    "keywords": [
+        "llama",
+        "smollm2",
+        "node-llama-cpp",
+        "local-llm",
+        "offline",
+        "chat"
+    ],
+    "license": "MIT",
+    "dependencies": {
+        "express": "^4.21.2",
+        "node-llama-cpp": "^3.22.3"
+    },
+    "devDependencies": {
+        "@sparticuz/chromium": "^153.0.0",
+        "jsdom": "^26.1.0",
+        "puppeteer-core": "^25.17.0"
+    }
 }

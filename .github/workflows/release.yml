@@ -1,0 +1,176 @@
+name: Release VoxelChat
+
+# Publishes the two things a user needs:
+#
+#   1. the model weights  -> the release asset VoxelChat's own tooling pulls
+#   2. the packaged app   -> a folder you unpack and double-click, with the
+#                            model, the llama.cpp binaries and a Node runtime
+#                            already inside
+#
+# The weights are 1.05 GB, which is why they cannot live in git: they are
+# fetched on the runner, checksum-verified and published as release assets.
+
+on:
+    push:
+        branches: [arena/108466d4-voxelchat]
+        paths:
+            - ".github/workflows/release.yml"
+            - "src/**"
+            - "public/**"
+            - "scripts/**"
+            - "package.json"
+    workflow_dispatch:
+        inputs:
+            platforms:
+                description: "Comma separated platform list (linux-x64, darwin-arm64, …) or 'all'"
+                default: "linux-x64"
+
+permissions:
+    contents: write
+
+env:
+    MODEL_NAME: smollm2-1.7b-instruct-q4_k_m.gguf
+    MODEL_URL: https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/2d4a76a30b4af41ecd395c35725ac11688d4cfe4/smollm2-1.7b-instruct-q4_k_m.gguf
+    MODEL_SHA256: decd2598bc2c8ed08c19adc3c8fdd461ee19ed5708679d1c54ef54a5a30d4f33
+    MODEL_RELEASE: smollm2-1.7b-instruct-q4_k_m
+    APP_RELEASE: voxelchat-v2
+
+jobs:
+    model:
+        name: Publish the model
+        runs-on: ubuntu-latest
+        timeout-minutes: 45
+
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 1
+
+            - name: Download SmolLM2 1.7B Instruct (Q4_K_M)
+              run: |
+                  set -euo pipefail
+                  echo "Downloading $MODEL_NAME ..."
+                  curl -L --fail --retry 3 --retry-delay 5 -C - -o "$MODEL_NAME" "$MODEL_URL"
+                  ls -lh "$MODEL_NAME"
+
+            - name: Verify checksum
+              run: |
+                  set -euo pipefail
+                  echo "$MODEL_SHA256  $MODEL_NAME" | sha256sum -c -
+
+            - name: Publish as a release asset
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+                  cat > /tmp/model-notes.md <<'NOTES'
+                  The model weights that ship inside VoxelChat.
+
+                  Source: [HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF](https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF) (Apache-2.0)
+                  NOTES
+                  printf 'SHA-256: `%s`\n' "$MODEL_SHA256" >> /tmp/model-notes.md
+
+                  gh release view "$MODEL_RELEASE" >/dev/null 2>&1 || \
+                      gh release create "$MODEL_RELEASE" \
+                          --title "SmolLM2 1.7B Instruct (Q4_K_M)" \
+                          --notes-file /tmp/model-notes.md \
+                          --target "$GITHUB_SHA"
+                  gh release edit "$MODEL_RELEASE" --notes-file /tmp/model-notes.md
+                  gh release upload "$MODEL_RELEASE" "$MODEL_NAME" --clobber
+
+    app:
+        name: Package the app
+        needs: model
+        runs-on: ubuntu-latest
+        timeout-minutes: 90
+        strategy:
+            fail-fast: false
+            matrix:
+                platform: [linux-x64, darwin-x64, darwin-arm64, win-x64]
+
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 1
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+
+            - name: Install the build dependencies
+              run: npm ci --no-audit --no-fund
+
+            - name: Fetch the model
+              run: |
+                  set -euo pipefail
+                  mkdir -p models
+                  curl -L --fail --retry 3 --retry-delay 5 \
+                      -o "models/$MODEL_NAME" \
+                      "https://github.com/$GITHUB_REPOSITORY/releases/download/$MODEL_RELEASE/$MODEL_NAME"
+                  echo "$MODEL_SHA256  models/$MODEL_NAME" | sha256sum -c -
+
+            - name: Build the app
+              run: |
+                  set -uo pipefail
+                  npm run build:app -- --platform "${{ matrix.platform }}" > /tmp/build.log 2>&1
+                  echo "$?" > /tmp/build.exit
+                  tail -n 40 /tmp/build.log
+                  if [ "$(cat /tmp/build.exit)" != "0" ]; then
+                      cat /tmp/build.log
+                      exit 1
+                  fi
+
+            - name: Pack the app
+              id: pack
+              run: |
+                  set -euo pipefail
+                  name="VoxelChat-${{ matrix.platform }}"
+                  cd dist
+                  if [ "${{ matrix.platform }}" = "win-x64" ]; then
+                      zip -r -1 "$name.zip" "$name"
+                      extension="zip"
+                  else
+                      tar -czf "$name.tar.gz" "$name"
+                      extension="tar.gz"
+                  fi
+                  echo "asset=dist/$name.$extension" >> "$GITHUB_OUTPUT"
+                  ls -lh "$name".*
+
+            - name: Publish the app
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+                  cat > /tmp/app-notes.md <<'NOTES'
+                  VoxelChat - chat with SmolLM2 1.7B on your own machine.
+
+                  Unpack it and double-click **VoxelChat** (or **VoxelChat.cmd** on Windows).
+                  The model, the llama.cpp engine and a Node runtime are already inside.
+                  NOTES
+
+                  gh release view "$APP_RELEASE" >/dev/null 2>&1 || \
+                      gh release create "$APP_RELEASE" \
+                          --title "VoxelChat 2.0" \
+                          --notes-file /tmp/app-notes.md \
+                          --target "$GITHUB_SHA"
+                  gh release edit "$APP_RELEASE" --notes-file /tmp/app-notes.md
+                  gh release upload "$APP_RELEASE" "${{ steps.pack.outputs.asset }}" --clobber
+
+    summary:
+        name: Summary
+        needs: [model, app]
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Write the summary
+              run: |
+                  {
+                    echo "### VoxelChat 2.0 is published"
+                    echo ""
+                    echo "| What | Where |"
+                    echo "| --- | --- |"
+                    echo "| The app | [$APP_RELEASE](https://github.com/$GITHUB_REPOSITORY/releases/tag/$APP_RELEASE) |"
+                    echo "| The model | [$MODEL_RELEASE](https://github.com/$GITHUB_REPOSITORY/releases/tag/$MODEL_RELEASE) |"
+                    echo ""
+                    echo "Model SHA-256: $MODEL_SHA256"
+                  } >> "$GITHUB_STEP_SUMMARY"
